@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useTranslation } from "react-i18next";
 import { useBlocker, useParams, useSearchParams } from "react-router-dom";
-import { AssistantPanel } from "@/components/core/assistantPanel";
 import { FlowPageSlidingContainerContent } from "@/components/core/playgroundComponent/sliding-container/components/flow-page-sliding-container";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
 import {
@@ -26,6 +25,9 @@ import { useShortcutsStore } from "@/stores/shortcuts";
 import { useTypesStore } from "@/stores/typesStore";
 import { isSiblingFlowView } from "@/utils/flow-view-routing";
 import { customStringify } from "@/utils/reactflowUtils";
+import RunDrawer from "./components/workbench/RunDrawer";
+import WorkbenchDock from "./components/workbench/WorkbenchDock";
+import "./components/workbench/workbench.css";
 import { cn } from "@/utils/utils";
 import useFlowStore from "../../stores/flowStore";
 import useFlowsManagerStore from "../../stores/flowsManagerStore";
@@ -49,6 +51,21 @@ function FlowPageMainContent({
   const { activeSection, setActiveSection } = useSidebar();
   const [searchParams, setSearchParams] = useSearchParams();
   const knowledgeSourceId = searchParams.get("knowledgeSourceId");
+  const { setOpen } = useSidebar();
+  const resource = searchParams.get("resource");
+  useEffect(() => {
+    if (
+      resource === "data" ||
+      resource === "tools" ||
+      resource === "templates"
+    ) {
+      setActiveSection(resource);
+      setOpen(true);
+      const next = new URLSearchParams(searchParams);
+      next.delete("resource");
+      setSearchParams(next, { replace: true });
+    }
+  }, [resource, setActiveSection, setOpen]);
   const shouldHydrateKnowledgeFromUrlRef = useRef(Boolean(knowledgeSourceId));
   const showTraces = ENABLE_NEW_SIDEBAR && activeSection === "traces";
   const showMemories = ENABLE_NEW_SIDEBAR && activeSection === "memories";
@@ -108,7 +125,7 @@ function FlowPageMainContent({
     );
   }
 
-  return <Page setIsLoading={setIsLoading} />;
+  return <Page setIsLoading={setIsLoading} dockedInspection />;
 }
 
 export default function FlowPage({ view }: { view?: boolean }): JSX.Element {
@@ -133,6 +150,9 @@ export default function FlowPage({ view }: { view?: boolean }): JSX.Element {
 
   const setOnFlowPage = useFlowStore((state) => state.setOnFlowPage);
   const { id } = useParams();
+  useEffect(() => {
+    if (id) localStorage.setItem("terraflow-workbench-flow", id);
+  }, [id]);
   const navigate = useCustomNavigate();
 
   // The App view is a sibling of the canvas, not a destination away from it:
@@ -359,18 +379,11 @@ export default function FlowPage({ view }: { view?: boolean }): JSX.Element {
               }}
             >
               <SidebarProvider
-                width="17.5rem"
+                width="17rem"
                 defaultOpen={!isMobile}
+                className="native-workbench relative min-w-0"
                 segmentedSidebar={ENABLE_NEW_SIDEBAR}
               >
-                {/* Assistant Panel — single instance, mounted INSIDE the
-                    SidebarProvider so it can read sidebar open state via
-                    ``useSidebar`` and shift its horizontal position when the
-                    sidebar slides off-canvas. */}
-                <AssistantPanel
-                  isOpen={assistantOpen}
-                  onClose={() => setAssistantOpen(false)}
-                />
                 <FlowSearchProvider>
                   {/* FlowSidebarComponent - stays in place. Wrapped in a
                       ``display: none`` container while the welcome is open
@@ -390,19 +403,24 @@ export default function FlowPage({ view }: { view?: boolean }): JSX.Element {
 
                   <main
                     className={cn(
-                      "flex flex-1 min-w-0 overflow-hidden transition-all duration-300",
+                      "flex flex-1 min-w-0 flex-col overflow-hidden",
                       isSlidingContainerOpen &&
                         !isFullscreen &&
                         "rounded-xl m-2 mr-0",
                     )}
                   >
-                    <div className="h-full w-full">
+                    <div
+                      className="min-h-0 w-full flex-1"
+                      data-testid="workbench-canvas"
+                    >
                       <FlowPageMainContent
                         flowId={id}
                         setIsLoading={setIsLoading}
                       />
                     </div>
+                    <RunDrawer />
                   </main>
+                  <WorkbenchDock />
                 </FlowSearchProvider>
               </SidebarProvider>
               <SimpleSidebar resizable={!isFullscreen} className="h-full">

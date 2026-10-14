@@ -331,6 +331,9 @@ export function useAssistantChat(): UseAssistantChatReturn {
       let currentStepTracked: AgenticStepType | null = null;
 
       try {
+        // The agent reads the graph by flow_id. Persist manual canvas edits
+        // before each turn; a failed save must stop the request.
+        if (!options?.internal) await saveFlow();
         await postAssistStream(
           {
             flow_id: currentFlowId || "",
@@ -612,7 +615,7 @@ export function useAssistantChat(): UseAssistantChatReturn {
         setIsProcessing(false);
       }
     },
-    [isProcessing, currentFlowId, updateMessage],
+    [isProcessing, currentFlowId, updateMessage, saveFlow],
   );
 
   const handleApprove = useCallback(

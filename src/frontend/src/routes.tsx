@@ -25,6 +25,7 @@ import { AppAuthenticatedPage } from "./pages/AppAuthenticatedPage";
 import { AppInitPage } from "./pages/AppInitPage";
 import { AppWrapperPage } from "./pages/AppWrapperPage";
 import FlowPage from "./pages/FlowPage";
+import WorkspaceEntry from "./pages/FlowPage/components/workbench/WorkspaceEntry";
 import LoginPage from "./pages/LoginPage";
 import FilesPage from "./pages/MainPage/pages/filesPage";
 import HomePage from "./pages/MainPage/pages/homePage";
@@ -44,9 +45,6 @@ import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
 import ViewPage from "./pages/ViewPage";
 import { DataPage, FlowsPage, RunsPage } from "./pages/WorkspacePage/pages";
 import RunDetailPage from "./pages/WorkspacePage/RunDetailPage";
-import WorkspaceMain, {
-  ViewRedirect,
-} from "./pages/WorkspacePage/WorkspaceMain";
 import WorkspaceShell from "./pages/WorkspacePage/WorkspaceShell";
 
 const AdminPage = lazy(() => import("./pages/AdminPage"));
@@ -93,19 +91,18 @@ const router = createBrowserRouter(
           >
             <Route path="" element={<AppAuthenticatedPage />}>
               {/* Agent Workspace: its own shell, outside the Langflow dashboard frame. */}
-              <Route path="workspace" element={<WorkspaceShell />}>
-                <Route index element={<WorkspaceMain />} />
-                <Route path="c/:conversationId" element={<WorkspaceMain />} />
-                <Route path="data" element={<ViewRedirect view="data" />} />
-                <Route path="data/manage" element={<DataPage />} />
-                <Route
-                  path="scenarios"
-                  element={<ViewRedirect view="flow" />}
-                />
-                <Route path="flows" element={<FlowsPage />} />
-                <Route path="tools" element={<ViewRedirect view="tools" />} />
-                <Route path="runs" element={<RunsPage />} />
-                <Route path="runs/:runId" element={<RunDetailPage />} />
+              <Route path="workspace" element={<Outlet />}>
+                <Route index element={<WorkspaceEntry />} />
+                <Route path="c/:conversationId" element={<WorkspaceEntry />} />
+                <Route path="data" element={<WorkspaceEntry />} />
+                <Route path="scenarios" element={<WorkspaceEntry />} />
+                <Route path="tools" element={<WorkspaceEntry />} />
+                <Route element={<WorkspaceShell />}>
+                  <Route path="data/manage" element={<DataPage />} />
+                  <Route path="flows" element={<FlowsPage />} />
+                  <Route path="runs" element={<RunsPage />} />
+                  <Route path="runs/:runId" element={<RunDetailPage />} />
+                </Route>
               </Route>
               <Route path="" element={<CustomDashboardWrapperPage />}>
                 <Route path="" element={<CollectionPage />}>

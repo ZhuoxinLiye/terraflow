@@ -1,0 +1,57 @@
+.native-workbench {
+  min-width: 0;
+}
+.native-workbench .workbench-dock {
+  display: flex;
+  flex: 0 0 328px;
+  width: 328px;
+  min-height: 0;
+  flex-direction: column;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+}
+.native-workbench .workbench-dock[hidden],
+.native-workbench [hidden] {
+  display: none;
+}
+.native-workbench .workbench-results {
+  flex-shrink: 0;
+}
+.native-workbench .sidebar-segmented {
+  min-width: 0;
+}
+.native-workbench [data-sidebar="sidebar"] {
+  font-size: 12px;
+}
+@media (max-width: 1199px) {
+  .native-workbench .workbench-dock {
+    flex-basis: 300px;
+    width: 300px;
+  }
+}
+@media (max-width: 767px) {
+  .native-workbench .workbench-dock {
+    position: absolute;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 45;
+    width: min(328px, 88vw);
+    box-shadow: -8px 0 24px #0000000a;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .native-workbench * {
+    scroll-behavior: auto;
+  }
+}
+
+.native-workbench [data-testid="assistant-panel"] [class*="blur-2xl"] {
+  display: none;
+}
+.native-workbench [data-testid="assistant-input-textarea"] {
+  font-size: 13px;
+}
+.native-workbench [data-testid="assistant-panel"] h2 {
+  font-size: 13px;
+}

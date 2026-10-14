@@ -83,7 +83,11 @@ function AssistantInputWithScroll({
   );
 }
 
-export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
+export function AssistantPanel({
+  isOpen,
+  onClose,
+  docked = false,
+}: AssistantPanelProps) {
   const { hasEnabledModels } = useEnabledModels();
   const panelRef = useRef<HTMLDivElement>(null);
   // Mirror the FlowPage sidebar's open state. When the sidebar is expanded
@@ -94,7 +98,7 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
   const isSidebarOpen = useSidebar().open;
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || docked) return;
 
     const handleClickOutside = (e: PointerEvent) => {
       const target = e.target as Node;
@@ -125,7 +129,7 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
     document.addEventListener("pointerdown", handleClickOutside, true);
     return () =>
       document.removeEventListener("pointerdown", handleClickOutside, true);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, docked]);
   const {
     messages,
     sessionId,
@@ -217,7 +221,7 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
 
   const handleApproveAndClose = (messageId: string, componentCode?: string) => {
     handleApprove(messageId, componentCode);
-    onClose();
+    if (!docked) onClose();
   };
 
   const hasMessages = messages.length > 0;
@@ -392,8 +396,12 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
     <div
       ref={panelRef}
       data-testid="assistant-panel"
-      className={containerClasses}
-      style={containerStyle}
+      className={
+        docked
+          ? "relative flex h-full min-h-0 w-full flex-col bg-background"
+          : containerClasses
+      }
+      style={docked ? undefined : containerStyle}
     >
       <div className="absolute inset-0 rounded-2xl bg-background" />
 
@@ -451,14 +459,16 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
           </StickToBottom>
         ) : (
           <>
-            {(useExpandedSize || isMentionOpen) && <div className="flex-1" />}
+            {(docked || useExpandedSize || isMentionOpen) && (
+              <div className="flex-1" />
+            )}
             <AssistantInput
               onSend={handleSend}
               onStop={handleStopGeneration}
               disabled={false}
               isProcessing={isProcessing}
               currentStep={currentStep}
-              compact={hasExpandedOnce}
+              compact={docked || hasExpandedOnce}
               autoFocus={isOpen}
               draftMessage={draftMessageCache}
               onDraftChange={(draft) => {
@@ -476,38 +486,40 @@ export function AssistantPanel({ isOpen, onClose }: AssistantPanelProps) {
           widen the panel before sending the first message. First drag flips
           hasUserResized → panel transitions from auto-height to
           panelSize-driven dimensions. */}
-      <>
-        {/* Left edge */}
-        <div
-          data-resize-handle
-          className="absolute top-3 bottom-3 -left-[5px] z-30 w-[10px] cursor-ew-resize rounded-full transition-colors hover:bg-primary/20"
-          onMouseDown={(e) => handleEdgeResize(e, { x: "left" })}
-        />
-        {/* Right edge */}
-        <div
-          data-resize-handle
-          className="absolute top-3 bottom-3 -right-[5px] z-30 w-[10px] cursor-ew-resize rounded-full transition-colors hover:bg-primary/20"
-          onMouseDown={(e) => handleEdgeResize(e, { x: "right" })}
-        />
-        {/* Top edge */}
-        <div
-          data-resize-handle
-          className="absolute -top-[5px] right-3 left-3 z-30 h-[10px] cursor-ns-resize rounded-full transition-colors hover:bg-primary/20"
-          onMouseDown={(e) => handleEdgeResize(e, { y: "top" })}
-        />
-        {/* Top-left corner */}
-        <div
-          data-resize-handle
-          className="absolute -top-[5px] -left-[5px] z-30 h-[14px] w-[14px] cursor-nw-resize rounded-full transition-colors hover:bg-primary/30"
-          onMouseDown={(e) => handleEdgeResize(e, { x: "left", y: "top" })}
-        />
-        {/* Top-right corner */}
-        <div
-          data-resize-handle
-          className="absolute -top-[5px] -right-[5px] z-30 h-[14px] w-[14px] cursor-ne-resize rounded-full transition-colors hover:bg-primary/30"
-          onMouseDown={(e) => handleEdgeResize(e, { x: "right", y: "top" })}
-        />
-      </>
+      {!docked && (
+        <>
+          {/* Left edge */}
+          <div
+            data-resize-handle
+            className="absolute top-3 bottom-3 -left-[5px] z-30 w-[10px] cursor-ew-resize rounded-full transition-colors hover:bg-primary/20"
+            onMouseDown={(e) => handleEdgeResize(e, { x: "left" })}
+          />
+          {/* Right edge */}
+          <div
+            data-resize-handle
+            className="absolute top-3 bottom-3 -right-[5px] z-30 w-[10px] cursor-ew-resize rounded-full transition-colors hover:bg-primary/20"
+            onMouseDown={(e) => handleEdgeResize(e, { x: "right" })}
+          />
+          {/* Top edge */}
+          <div
+            data-resize-handle
+            className="absolute -top-[5px] right-3 left-3 z-30 h-[10px] cursor-ns-resize rounded-full transition-colors hover:bg-primary/20"
+            onMouseDown={(e) => handleEdgeResize(e, { y: "top" })}
+          />
+          {/* Top-left corner */}
+          <div
+            data-resize-handle
+            className="absolute -top-[5px] -left-[5px] z-30 h-[14px] w-[14px] cursor-nw-resize rounded-full transition-colors hover:bg-primary/30"
+            onMouseDown={(e) => handleEdgeResize(e, { x: "left", y: "top" })}
+          />
+          {/* Top-right corner */}
+          <div
+            data-resize-handle
+            className="absolute -top-[5px] -right-[5px] z-30 h-[14px] w-[14px] cursor-ne-resize rounded-full transition-colors hover:bg-primary/30"
+            onMouseDown={(e) => handleEdgeResize(e, { x: "right", y: "top" })}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -25,6 +25,9 @@ const SIDEBAR_WIDTH_ICON = "4rem";
 const SEGMENTED_SIDEBAR_ICON_WIDTH = "40px";
 
 export type SidebarSection =
+  | "data"
+  | "tools"
+  | "templates"
   | "search"
   | "components"
   | "bundles"

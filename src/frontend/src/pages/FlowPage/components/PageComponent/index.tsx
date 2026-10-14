@@ -91,9 +91,11 @@ import isWrappedWithClass from "./utils/is-wrapped-with-class";
 export default function Page({
   view,
   setIsLoading,
+  dockedInspection = false,
 }: {
   view?: boolean;
   setIsLoading: (isLoading: boolean) => void;
+  dockedInspection?: boolean;
 }): JSX.Element {
   const { t } = useTranslation();
   const uploadFlow = useUploadFlow();
@@ -894,12 +896,12 @@ export default function Page({
                   isAgentWorking={isAgentWorking}
                 />
                 {!isPreviewActive && <FlowToolbar />}
-                {inspectionPanelVisible && (
+                {inspectionPanelVisible && !dockedInspection && (
                   <InspectionPanel selectedNode={selectedNode} />
                 )}
               </>
             )}
-            {!isWelcomeOpen && <MemoizedSidebarTrigger />}
+            {!isWelcomeOpen && !dockedInspection && <MemoizedSidebarTrigger />}
             <SelectionMenu
               lastSelection={lastSelection}
               isVisible={selectionMenuVisible}

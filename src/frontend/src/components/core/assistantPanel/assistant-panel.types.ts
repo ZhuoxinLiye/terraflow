@@ -173,6 +173,7 @@ export interface AssistantSuggestion {
 export interface AssistantPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  docked?: boolean;
 }
 
 /** AssistantMessage with Date serialized as ISO string and progress stripped. */

@@ -40,6 +40,7 @@ import useFlowStore from "../../../../stores/flowStore";
 import { useTypesStore } from "../../../../stores/typesStore";
 import type { APIClassType } from "../../../../types/api";
 import isWrappedWithClass from "../PageComponent/utils/is-wrapped-with-class";
+import ResourcePanel from "../workbench/ResourcePanel";
 import { CategoryGroup } from "./components/categoryGroup";
 import NoResultsMessage from "./components/emptySearchComponent";
 import FlowVersionSidebarContent from "./components/FlowVersionSidebarContent";
@@ -700,7 +701,7 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
 
   return (
     <Sidebar
-      collapsible="offcanvas"
+      collapsible="icon"
       data-testid="shad-sidebar"
       className="noflow select-none"
     >
@@ -716,7 +717,9 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
               "opacity-0 pointer-events-none",
           )}
         >
-          {showVersions && currentFlowForVersions?.id ? (
+          {["data", "tools", "templates"].includes(activeSection) ? (
+            <ResourcePanel section={activeSection} />
+          ) : showVersions && currentFlowForVersions?.id ? (
             <FlowVersionSidebarContent flowId={currentFlowForVersions.id} />
           ) : (
             <>

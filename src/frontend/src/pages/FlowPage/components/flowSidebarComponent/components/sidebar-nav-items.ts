@@ -21,6 +21,9 @@ export interface SidebarNavItem {
 }
 
 export const NAV_ITEMS: SidebarNavItem[] = [
+  { id: "data", icon: "Images", label: "数据", tooltip: "数据目录与上传" },
+  { id: "tools", icon: "Wrench", label: "工具", tooltip: "Terrabox 工具" },
+  { id: "templates", icon: "Workflow", label: "模板", tooltip: "工作流模板" },
   {
     id: "components",
     icon: "component",

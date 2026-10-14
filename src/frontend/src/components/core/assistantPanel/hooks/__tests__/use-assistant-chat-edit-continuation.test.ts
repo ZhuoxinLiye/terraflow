@@ -139,6 +139,7 @@ async function proposeEditsTurn(n: number, continuationExpected = true) {
     );
   });
   await flushTimers();
+  mockSaveFlow.mockClear(); // Follow-up assertions count saves after the initial user turn.
   return hook;
 }
 
@@ -159,6 +160,43 @@ describe("useAssistantChat — edit-approval continuation", () => {
 
   afterEach(() => {
     jest.useRealTimers();
+  });
+
+  it("waits for manual edits to save before a new assistant turn", async () => {
+    let releaseSave: () => void = () => {};
+    mockSaveFlow.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseSave = resolve;
+        }),
+    );
+    const { result } = renderHook(() => useAssistantChat());
+    let sending: Promise<void>;
+    act(() => {
+      sending = result.current.handleSend(
+        "inspect my edited graph",
+        TEST_MODEL,
+      );
+    });
+    expect(mockPostAssistStream).not.toHaveBeenCalled();
+    await act(async () => {
+      releaseSave();
+      await sending;
+    });
+    expect(mockPostAssistStream).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send a stale graph when saving manual edits fails", async () => {
+    mockSaveFlow.mockRejectedValueOnce(new Error("save failed"));
+    const { result } = renderHook(() => useAssistantChat());
+    await act(async () => {
+      await result.current.handleSend("run my edited graph", TEST_MODEL);
+    });
+    expect(mockPostAssistStream).not.toHaveBeenCalled();
+    expect(result.current.isProcessing).toBe(false);
+    expect(
+      result.current.messages.find((m) => m.role === "assistant")?.status,
+    ).toBe("error");
   });
 
   it("should_persist_canvas_then_send_a_silent_continuation_turn_when_an_edit_is_applied", async () => {
@@ -201,14 +239,13 @@ describe("useAssistantChat — edit-approval continuation", () => {
   // pins it permanently.)
   it("should_not_fire_continuation_until_a_slow_saveFlow_resolves", async () => {
     let releaseSave: () => void = () => {};
+    const { result } = await proposeEditsTurn(1);
     mockSaveFlow.mockImplementationOnce(
       () =>
         new Promise<void>((resolve) => {
           releaseSave = resolve;
         }),
     );
-
-    const { result } = await proposeEditsTurn(1);
     const msgId = assistantMsgId(result);
     expect(mockPostAssistStream).toHaveBeenCalledTimes(1);
 

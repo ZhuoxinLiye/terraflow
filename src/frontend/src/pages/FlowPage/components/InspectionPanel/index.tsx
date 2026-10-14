@@ -9,10 +9,12 @@ import InspectionPanelHeader from "./components/InspectionPanelHeader";
 
 interface InspectionPanelProps {
   selectedNode: AllNodeType | null;
+  docked?: boolean;
 }
 
 const InspectionPanel = memo(function InspectionPanel({
   selectedNode,
+  docked = false,
 }: InspectionPanelProps) {
   const [isEditingFields, setIsEditingFields] = useState(false);
 
@@ -20,6 +22,23 @@ const InspectionPanel = memo(function InspectionPanel({
   useEffect(() => {
     setIsEditingFields(false);
   }, [selectedNode?.id]);
+
+  if (docked)
+    return selectedNode?.type === "genericNode" ? (
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
+        <InspectionPanelHeader
+          data={selectedNode.data}
+          isEditingFields={isEditingFields}
+          setIsEditingFields={setIsEditingFields}
+        />
+        <Separator />
+        <InspectionPanelFields
+          data={selectedNode.data}
+          key={selectedNode.id}
+          isEditingFields={isEditingFields}
+        />
+      </div>
+    ) : null;
 
   return (
     <AnimatePresence mode="wait">
