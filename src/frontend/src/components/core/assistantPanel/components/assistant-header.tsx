@@ -17,6 +17,8 @@ interface AssistantHeaderProps {
   isExpanded: boolean;
   /** Mirrors the hook's skipAll preference. Renders an inline badge cue. */
   skipAll?: boolean;
+  /** The workbench dock already labels the assistant tab. */
+  docked?: boolean;
 }
 
 export function AssistantHeader({
@@ -29,17 +31,22 @@ export function AssistantHeader({
   onDeleteSession,
   isExpanded,
   skipAll = false,
+  docked = false,
 }: AssistantHeaderProps) {
   const { t } = useTranslation();
   const isAtSessionLimit = sessions.length >= ASSISTANT_MAX_SESSIONS;
   const isNewSessionDisabled = !hasMessages || isAtSessionLimit;
 
   return (
-    <div className="flex h-12 items-center justify-between px-4">
+    <div
+      className={`flex shrink-0 items-center justify-between px-4 ${docked ? "h-9 border-b" : "h-12"}`}
+    >
       <div className="flex items-center gap-2">
-        <h2 className="text-sm font-medium text-foreground">
-          {t("assistant.title")}
-        </h2>
+        {!docked && (
+          <h2 className="text-sm font-medium text-foreground">
+            {t("assistant.title")}
+          </h2>
+        )}
         {skipAll && (
           <span
             data-testid="assistant-skip-all-badge"

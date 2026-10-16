@@ -11,10 +11,7 @@ import {
   useState,
 } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
-import { useTranslation } from "react-i18next";
 import { useShallow } from "zustand/react/shallow";
-import ForwardedIconComponent from "@/components/common/genericIconComponent";
-import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -53,6 +50,11 @@ import { applyBetaFilter } from "./helpers/apply-beta-filter";
 import { applyComponentFilter } from "./helpers/apply-component-filter";
 import { applyEdgeFilter } from "./helpers/apply-edge-filter";
 import { applyLegacyFilter } from "./helpers/apply-legacy-filter";
+import {
+  type CatalogScope,
+  filterCatalogScope,
+  isCatalogCategory,
+} from "./helpers/catalog-scope";
 import { combinedResultsFn } from "./helpers/combined-results";
 import { computeSectionVisibility } from "./helpers/compute-section-visibility";
 import { filteredDataFn } from "./helpers/filtered-data";
@@ -160,7 +162,6 @@ interface FlowSidebarComponentProps {
 }
 
 export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
-  const { t } = useTranslation();
   const rawData = useTypesStore((state) => state.data);
 
   // Filter out knowledge components from files_and_knowledge category when ENABLE_KNOWLEDGE_BASES is OFF
@@ -265,6 +266,9 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   const [showConfig, setShowConfig] = useState(false);
   const [showBeta, setShowBeta] = useState(showBetaStorage);
   const [showLegacy, setShowLegacy] = useState(showLegacyStorage);
+  const [catalogScope, setCatalogScope] = useState<CatalogScope>("all");
+  const catalogActive =
+    activeSection === "components" || activeSection === "search";
 
   // Functions to handle state changes with localStorage persistence
   const handleSetShowBeta = useCallback((value: boolean) => {
@@ -386,6 +390,10 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
       filteredData = applyLegacyFilter(filteredData);
     }
 
+    if (catalogActive) {
+      filteredData = filterCatalogScope(filteredData, catalogScope);
+    }
+
     return filteredData;
   }, [
     searchFilteredData,
@@ -393,13 +401,15 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
     getFilterComponent,
     showBeta,
     showLegacy,
+    catalogActive,
+    catalogScope,
   ]);
 
   const hasResults = useMemo(() => {
     return Object.entries(dataFilter).some(
       ([category, items]) =>
         (Object.keys(items).length > 0 &&
-          (CATEGORIES.find((c) => c.name === category) ||
+          (isCatalogCategory(category) ||
             BUNDLES.find((b) => b.name === category))) ||
         (dataFilter["MCP"] && Object.keys(dataFilter["MCP"]).length > 0),
     );
@@ -570,12 +580,10 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
   );
 
   const hasCoreComponents = useMemo(() => {
-    const categoriesWithItems = CATEGORIES.filter(
-      (item) =>
-        dataFilter[item.name] && Object.keys(dataFilter[item.name]).length > 0,
+    return Object.entries(dataFilter).some(
+      ([category, items]) =>
+        isCatalogCategory(category) && Object.keys(items).length > 0,
     );
-    const result = categoriesWithItems.length > 0;
-    return result;
   }, [dataFilter]);
 
   const hasBundleItems = useMemo(() => {
@@ -717,12 +725,17 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
               "opacity-0 pointer-events-none",
           )}
         >
-          {["data", "tools", "templates"].includes(activeSection) ? (
+          {activeSection === "data" || activeSection === "templates" ? (
             <ResourcePanel section={activeSection} />
           ) : showVersions && currentFlowForVersions?.id ? (
             <FlowVersionSidebarContent flowId={currentFlowForVersions.id} />
           ) : (
             <>
+              {catalogActive && (
+                <header className="flex h-11 shrink-0 items-center border-b px-3 text-sm font-medium">
+                  组件与工具
+                </header>
+              )}
               {isFullSidebarPanelMounted && (
                 <SidebarHeaderComponent
                   showConfig={showConfig}
@@ -741,6 +754,33 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                   filterDescription={filterDescription}
                   resetFilters={resetFilters}
                 />
+              )}
+
+              {catalogActive && (
+                <div
+                  className="flex shrink-0 gap-1 border-b px-2 py-2"
+                  role="group"
+                  aria-label="组件与工具筛选"
+                >
+                  {(
+                    [
+                      ["all", "全部"],
+                      ["geo", "地理工具"],
+                      ["basic", "基础组件"],
+                    ] as const
+                  ).map(([scope, label]) => (
+                    <Button
+                      key={scope}
+                      size="sm"
+                      variant={catalogScope === scope ? "secondary" : "ghost"}
+                      className="h-7 flex-1 px-2 text-xs"
+                      aria-pressed={catalogScope === scope}
+                      onClick={() => setCatalogScope(scope)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
               )}
 
               <SidebarContent
@@ -818,28 +858,6 @@ export function FlowSidebarComponent({ isLoading }: FlowSidebarComponentProps) {
                             showConfig={showConfig}
                             setShowConfig={setShowConfig}
                           />
-                        )}
-                        {showComponents && (
-                          <Button
-                            onClick={() => setActiveSection("bundles")}
-                            variant="ghost"
-                            className="bg-muted hover:bg-muted/70 mx-3 px-2.5 !text-[13px] font-normal line-height-[16px] mb-3 group -mt-3 h-[34px]"
-                          >
-                            <span className="text-muted-foreground flex items-center">
-                              <ForwardedIconComponent
-                                name="blocks"
-                                className="h-4 w-4"
-                              />
-                            </span>
-                            <ShadTooltip
-                              content={t("sidebar.discoverMore")}
-                              styleClasses="z-50"
-                            >
-                              <span className="min-w-0 truncate">
-                                {t("sidebar.discoverMore")}
-                              </span>
-                            </ShadTooltip>
-                          </Button>
                         )}
                       </>
                     ) : (

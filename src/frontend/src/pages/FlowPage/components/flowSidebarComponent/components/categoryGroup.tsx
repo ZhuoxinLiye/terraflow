@@ -1,5 +1,4 @@
 import { memo } from "react";
-import { useTranslation } from "react-i18next";
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -7,8 +6,8 @@ import {
   SidebarMenu,
 } from "@/components/ui/sidebar";
 import { ENABLE_NEW_SIDEBAR } from "@/customization/feature-flags";
-import { SIDEBAR_BUNDLES } from "@/utils/styleUtils";
 import { toTitleCase } from "@/utils/utils";
+import { isCatalogCategory } from "../helpers/catalog-scope";
 import { deriveBundleExtensionId } from "../helpers/derive-bundle-extension-id";
 import type { CategoryGroupProps } from "../types";
 import { CategoryDisclosure } from "./categoryDisclouse";
@@ -27,12 +26,11 @@ export const CategoryGroup = memo(function CategoryGroup({
   showConfig,
   setShowConfig,
 }: CategoryGroupProps) {
-  const { t } = useTranslation();
   return (
     <SidebarGroup className="p-3 pr-2">
       {ENABLE_NEW_SIDEBAR && (
         <SidebarGroupLabel className="cursor-default flex items-center justify-between w-full">
-          <span>{t("sidebar.components")}</span>
+          <span>分类</span>
           <SearchConfigTrigger
             showConfig={showConfig}
             setShowConfig={setShowConfig}
@@ -45,9 +43,7 @@ export const CategoryGroup = memo(function CategoryGroup({
             .filter(
               ([categoryName, items]) =>
                 // filter out bundles and MCP
-                !SIDEBAR_BUNDLES.some((cat) => cat.name === categoryName) &&
-                categoryName !== "custom_component" &&
-                categoryName !== "MCP" &&
+                isCatalogCategory(categoryName) &&
                 Object.keys(items).length > 0,
             )
             .sort(([aName], [bName]) => {

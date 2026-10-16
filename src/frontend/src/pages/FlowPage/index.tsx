@@ -57,9 +57,10 @@ function FlowPageMainContent({
     if (
       resource === "data" ||
       resource === "tools" ||
+      resource === "components" ||
       resource === "templates"
     ) {
-      setActiveSection(resource);
+      setActiveSection(resource === "tools" ? "components" : resource);
       setOpen(true);
       const next = new URLSearchParams(searchParams);
       next.delete("resource");

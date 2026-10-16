@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Icon from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { SidebarSection } from "@/components/ui/sidebar";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import { useAddComponent } from "@/hooks/use-add-component";
 import { useCatalog, useScenes } from "@/pages/WorkspacePage/api";
@@ -27,14 +26,39 @@ import TemplatePanel from "./TemplatePanel";
 export default function ResourcePanel({
   section,
 }: {
-  section: SidebarSection;
+  section: "data" | "templates";
 }) {
+  const save = useSaveFlow();
+  const navigate = useNavigate();
+  const assistantBusy = useAssistantManagerStore(
+    (s) => s.isAssistantProcessing,
+  );
+  const flowLocked = useFlowStore(
+    (s) => s.isBuilding || !!s.currentFlow?.locked,
+  );
+  if (section === "data") return <DataResourcePanel />;
+  return (
+    <div
+      className="flex h-full min-h-0 flex-col"
+      data-testid="workbench-templates"
+    >
+      <header className="flex h-11 shrink-0 items-center border-b px-3 text-sm font-medium">
+        工作流模板
+      </header>
+      <TemplatePanel
+        disabled={flowLocked || assistantBusy}
+        save={save}
+        openFlow={async (id) => navigate(`/flow/${id}`)}
+      />
+    </div>
+  );
+}
+
+function DataResourcePanel() {
   const { items, loading, error, refresh } = useCatalog();
   const { scenes, refresh: refreshScenes } = useScenes();
   const registry = useTypesStore((s) => s.data);
   const add = useAddComponent();
-  const save = useSaveFlow();
-  const navigate = useNavigate();
   const assistantBusy = useAssistantManagerStore(
     (s) => s.isAssistantProcessing,
   );
@@ -55,15 +79,6 @@ export default function ResourcePanel({
         (s) => !s.self_check_for && (developer || s.audience !== "developer"),
       )
       .map((s) => s.id),
-  );
-  const tools = useMemo(
-    () =>
-      Object.entries(registry).flatMap(([category, components]) =>
-        Object.entries(components)
-          .filter(([type]) => type.startsWith("Terrabox"))
-          .map(([type, component]) => ({ category, type, component })),
-      ),
-    [registry],
   );
   const matches = (text: string) =>
     text.toLowerCase().includes(search.toLowerCase());
@@ -86,238 +101,143 @@ export default function ResourcePanel({
   }
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col"
-      data-testid={`workbench-${section}`}
-    >
+    <div className="flex h-full min-h-0 flex-col" data-testid="workbench-data">
       <header className="flex h-11 shrink-0 items-center justify-between border-b px-3 text-sm font-medium">
-        <span>
-          {section === "data"
-            ? "数据"
-            : section === "tools"
-              ? "Terrabox 工具"
-              : "工作流模板"}
-        </span>
-        {section === "data" && (
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-7 w-7"
-            aria-label="上传数据"
-            onClick={() => setUpload(true)}
-          >
-            <Icon name="Upload" className="h-4 w-4" />
-          </Button>
-        )}
+        <span>数据</span>
+        <Button
+          size="icon"
+          variant="ghost"
+          className="h-7 w-7"
+          aria-label="上传数据"
+          onClick={() => setUpload(true)}
+        >
+          <Icon name="Upload" className="h-4 w-4" />
+        </Button>
       </header>
-      {section === "templates" ? (
-        <TemplatePanel
-          disabled={locked}
-          save={save}
-          openFlow={async (id) => {
-            navigate(`/flow/${id}`);
-          }}
+      <div className="space-y-2 border-b p-2">
+        <Input
+          aria-label="搜索数据"
+          placeholder="搜索名称、地区或类型"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-8 text-xs"
         />
-      ) : (
-        <>
-          <div className="space-y-2 border-b p-2">
-            <Input
-              aria-label={section === "data" ? "搜索数据" : "搜索工具"}
-              placeholder={
-                section === "data" ? "搜索名称、地区或类型" : "搜索工具"
-              }
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-8 text-xs"
-            />
-            {section === "data" && (
-              <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                <input
-                  type="checkbox"
-                  checked={developer}
-                  onChange={(e) => setDeveloper(e.target.checked)}
-                />
-                显示工程测试数据
-              </label>
-            )}
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
-            {section === "data" ? (
-              <>
-                {error && (
-                  <p role="alert" className="p-2 text-destructive">
-                    {error}
-                    <Button
-                      variant="ghost"
-                      onClick={() => {
-                        void refresh();
-                        void refreshScenes();
-                      }}
-                    >
-                      重试
-                    </Button>
-                  </p>
-                )}
-                {loading && (
-                  <p className="p-2 text-muted-foreground">读取数据目录…</p>
-                )}
-                {!loading &&
-                  !error &&
-                  items.filter(
-                    (item) =>
-                      (developer || item.audience !== "developer") &&
-                      matches(
-                        `${item.title} ${item.collection_title} ${item.place} ${item.type_label}`,
-                      ),
-                  ).length === 0 && (
-                    <p className="p-2 text-muted-foreground">
-                      没有匹配的数据。
-                    </p>
-                  )}
-                {items
-                  .filter(
-                    (item) =>
-                      (developer || item.audience !== "developer") &&
-                      matches(
-                        `${item.title} ${item.collection_title} ${item.place} ${item.type_label}`,
-                      ),
-                  )
-                  .map((item) => {
-                    const component = sceneIds.has(item.id)
-                      ? sceneComponent(sceneTemplate, item.id)
-                      : null;
-                    return (
-                      <div
-                        key={item.id}
-                        className="group mb-1 flex items-center gap-2 rounded-md border border-transparent p-1.5 hover:border-border hover:bg-muted/60"
-                        draggable={!!component && !locked}
-                        onDragStart={(e) =>
-                          component && drag(e, component, "SceneInput")
-                        }
-                        data-testid={`resource-${item.id}`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setDetail(item)}
-                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                          title="查看数据详情"
-                        >
-                          {item.preview ? (
-                            <img
-                              src={item.preview}
-                              alt=""
-                              className="h-9 w-10 shrink-0 rounded object-cover"
-                            />
-                          ) : (
-                            <Icon
-                              name="FileImage"
-                              className="h-9 w-10 shrink-0 p-2 text-muted-foreground"
-                            />
-                          )}
-                          <span className="min-w-0">
-                            <span
-                              className="block truncate font-medium"
-                              title={`${item.collection_title} · ${item.title}`}
-                            >
-                              {item.title}
-                            </span>
-                            <span className="block truncate text-[11px] text-muted-foreground">
-                              {item.date?.slice(0, 10) || "日期未记录"} ·{" "}
-                              {item.type_label}
-                            </span>
-                            <span className="block truncate text-[10px] text-muted-foreground">
-                              {item.collection_title} · {item.origin_label}
-                            </span>
-                          </span>
-                        </button>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 shrink-0"
-                          aria-label={`将 ${item.title} 加入画布`}
-                          disabled={!component || locked}
-                          title={
-                            component
-                              ? "拖入或点击加入当前画布"
-                              : "此条目暂未接入原生输入组件，可查看详情"
-                          }
-                          onClick={() =>
-                            component && addToCanvas(component, "SceneInput")
-                          }
-                        >
-                          <Icon name="Plus" className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    );
-                  })}
-              </>
-            ) : (
-              <>
-                {tools.length === 0 && (
-                  <p className="p-2 text-muted-foreground">
-                    当前未加载 Terrabox
-                    组件，请检查服务连接；原生组件栏仍可使用。
-                  </p>
-                )}
-                {tools
-                  .filter((item) =>
-                    matches(
-                      `${item.category} ${item.component.display_name} ${item.component.description}`,
-                    ),
-                  )
-                  .map(({ type, component, category }) => (
-                    <div
-                      key={type}
-                      draggable={!locked}
-                      onDragStart={(e) => drag(e, component, type)}
-                      className="mb-1 rounded-md px-2 py-1.5 hover:bg-muted"
-                      title={component.description}
-                      data-testid={`tool-${type}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <Icon
-                          name={component.icon || "Wrench"}
-                          className="h-4 w-4 shrink-0"
-                        />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {component.display_name}
-                        </span>
-                        <Button
-                          aria-label={`添加 ${component.display_name}`}
-                          size="icon"
-                          variant="ghost"
-                          className="h-6 w-6"
-                          disabled={locked}
-                          onClick={() => addToCanvas(component, type)}
-                        >
-                          <Icon name="Plus" className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                      <p className="truncate text-[11px] text-muted-foreground">
-                        {category} · {component.description}
-                      </p>
-                    </div>
-                  ))}
-                {tools.length > 0 &&
-                  tools.filter((item) =>
-                    matches(
-                      `${item.category} ${item.component.display_name} ${item.component.description}`,
-                    ),
-                  ).length === 0 && (
-                    <p className="p-2 text-muted-foreground">
-                      没有匹配的工具。
-                    </p>
-                  )}
-              </>
-            )}
-          </div>
-          <p className="border-t p-2 text-[11px] leading-4 text-muted-foreground">
-            {section === "data"
-              ? "拖入或点 + 添加输入节点；在画布中选择工具并连线。"
-              : "拖入或点 + 添加原生工具节点；参数在节点或属性中编辑。"}
+        <label className="flex items-center gap-2 text-xs text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={developer}
+            onChange={(e) => setDeveloper(e.target.checked)}
+          />
+          显示工程测试数据
+        </label>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2 text-xs">
+        {error && (
+          <p role="alert" className="p-2 text-destructive">
+            {error}
+            <Button
+              variant="ghost"
+              onClick={() => {
+                void refresh();
+                void refreshScenes();
+              }}
+            >
+              重试
+            </Button>
           </p>
-        </>
-      )}
+        )}
+        {loading && <p className="p-2 text-muted-foreground">读取数据目录…</p>}
+        {!loading &&
+          !error &&
+          items.filter(
+            (item) =>
+              (developer || item.audience !== "developer") &&
+              matches(
+                `${item.title} ${item.collection_title} ${item.place} ${item.type_label}`,
+              ),
+          ).length === 0 && (
+            <p className="p-2 text-muted-foreground">没有匹配的数据。</p>
+          )}
+        {items
+          .filter(
+            (item) =>
+              (developer || item.audience !== "developer") &&
+              matches(
+                `${item.title} ${item.collection_title} ${item.place} ${item.type_label}`,
+              ),
+          )
+          .map((item) => {
+            const component = sceneIds.has(item.id)
+              ? sceneComponent(sceneTemplate, item.id)
+              : null;
+            return (
+              <div
+                key={item.id}
+                className="group mb-1 flex items-center gap-2 rounded-md border border-transparent p-1.5 hover:border-border hover:bg-muted/60"
+                draggable={!!component && !locked}
+                onDragStart={(e) =>
+                  component && drag(e, component, "SceneInput")
+                }
+                data-testid={`resource-${item.id}`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setDetail(item)}
+                  className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                  title="查看数据详情"
+                >
+                  {item.preview ? (
+                    <img
+                      src={item.preview}
+                      alt=""
+                      className="h-9 w-10 shrink-0 rounded object-cover"
+                    />
+                  ) : (
+                    <Icon
+                      name="FileImage"
+                      className="h-9 w-10 shrink-0 p-2 text-muted-foreground"
+                    />
+                  )}
+                  <span className="min-w-0">
+                    <span
+                      className="block truncate font-medium"
+                      title={`${item.collection_title} · ${item.title}`}
+                    >
+                      {item.title}
+                    </span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {item.date?.slice(0, 10) || "日期未记录"} ·{" "}
+                      {item.type_label}
+                    </span>
+                    <span className="block truncate text-[10px] text-muted-foreground">
+                      {item.collection_title} · {item.origin_label}
+                    </span>
+                  </span>
+                </button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-7 w-7 shrink-0"
+                  aria-label={`将 ${item.title} 加入画布`}
+                  disabled={!component || locked}
+                  title={
+                    component
+                      ? "拖入或点击加入当前画布"
+                      : "此条目暂未接入原生输入组件，可查看详情"
+                  }
+                  onClick={() =>
+                    component && addToCanvas(component, "SceneInput")
+                  }
+                >
+                  <Icon name="Plus" className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            );
+          })}
+      </div>
+      <p className="border-t p-2 text-[11px] leading-4 text-muted-foreground">
+        拖入或点 + 添加输入节点；在组件与工具中选择工具并连线。
+      </p>
       <Dialog open={upload} onOpenChange={setUpload}>
         <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
           <DialogHeader>

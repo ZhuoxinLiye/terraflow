@@ -355,43 +355,23 @@ describe("SidebarSegmentedNav", () => {
     expect(mockUseSidebar.setActiveSection).toHaveBeenCalledWith("mcp");
   });
 
-  it("exports NAV_ITEMS correctly", () => {
-    expect(NAV_ITEMS).toHaveLength(6);
-    expect(NAV_ITEMS[0]).toEqual({
+  it("exports one component/tool entry alongside the other workspace sections", () => {
+    expect(NAV_ITEMS.map((item) => item.id)).toEqual([
+      "data",
+      "components",
+      "templates",
+      "mcp",
+      "bundles",
+      "versions",
+      "memories",
+      "knowledge",
+      "traces",
+    ]);
+    expect(NAV_ITEMS.find((item) => item.id === "components")).toEqual({
       id: "components",
-      icon: "component",
-      label: "sidebar.nav.components",
-      tooltip: "sidebar.nav.components",
-    });
-    expect(NAV_ITEMS[1]).toEqual({
-      id: "mcp",
-      icon: "Mcp",
-      label: "sidebar.nav.mcp",
-      tooltip: "sidebar.nav.mcp",
-    });
-    expect(NAV_ITEMS[2]).toEqual({
-      id: "bundles",
-      icon: "blocks",
-      label: "sidebar.nav.bundles",
-      tooltip: "sidebar.nav.bundles",
-    });
-    expect(NAV_ITEMS[3]).toEqual({
-      id: "versions",
-      icon: "History",
-      label: "sidebar.nav.versions",
-      tooltip: "sidebar.nav.versionHistory",
-    });
-    expect(NAV_ITEMS[4]).toEqual({
-      id: "memories",
-      icon: "BrainCog",
-      label: "memory.sidebarTitle",
-      tooltip: "memory.sidebarTitle",
-    });
-    expect(NAV_ITEMS[5]).toEqual({
-      id: "traces",
-      icon: "Activity",
-      label: "sidebar.nav.traces",
-      tooltip: "sidebar.nav.traces",
+      icon: "Wrench",
+      label: "组件与工具",
+      tooltip: "组件与工具",
     });
   });
 

@@ -25,7 +25,7 @@ export default function WorkspaceEntry() {
   const section = pathname.includes("/data")
     ? "data"
     : pathname.includes("/tools")
-      ? "tools"
+      ? "components"
       : pathname.includes("/scenarios")
         ? "templates"
         : "";

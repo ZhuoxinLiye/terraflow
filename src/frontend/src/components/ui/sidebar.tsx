@@ -26,7 +26,6 @@ const SEGMENTED_SIDEBAR_ICON_WIDTH = "40px";
 
 export type SidebarSection =
   | "data"
-  | "tools"
   | "templates"
   | "search"
   | "components"
@@ -59,6 +58,7 @@ function getInitialSidebarSection(
 ): SidebarSection {
   const cookieValue = getCookie(SIDEBAR_SECTION_COOKIE_NAME);
   if (cookieValue === null) return defaultSection;
+  if (cookieValue === "tools") return "components";
   if (
     cookieValue === "search" ||
     cookieValue === "components" ||

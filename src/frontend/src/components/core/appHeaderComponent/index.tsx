@@ -8,8 +8,8 @@ import ShadTooltip from "@/components/common/shadTooltipComponent";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import CustomAccountMenu from "@/customization/components/custom-AccountMenu";
-import CustomTerraflowCounts from "@/customization/components/custom-terraflow-counts";
 import { CustomOrgSelector } from "@/customization/components/custom-org-selector";
+import CustomTerraflowCounts from "@/customization/components/custom-terraflow-counts";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import useTheme from "@/customization/hooks/use-custom-theme";
 import useAlertStore from "@/stores/alertStore";
@@ -70,11 +70,11 @@ export default function AppHeader(): JSX.Element {
         </Button>
         <Button
           unstyled
-          onClick={() => navigate("/workspace")}
+          onClick={() => navigate("/flows")}
           className="mr-1 rounded-md px-2 py-1 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-          data-testid="header_workspace_link"
+          data-testid="header_flows_link"
         >
-          ← 工作区
+          ← 工作流列表
         </Button>
         <CustomOrgSelector />
       </div>

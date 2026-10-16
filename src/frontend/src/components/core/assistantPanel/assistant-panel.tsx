@@ -416,6 +416,7 @@ export function AssistantPanel({
           onDeleteSession={deleteSession}
           isExpanded={useExpandedSize}
           skipAll={skipAll}
+          docked={docked}
         />
         {!hasEnabledModels && !hasMessages ? (
           <AssistantNoModelsState />

@@ -63,7 +63,7 @@ export default function RunDrawer() {
                 className="h-6 text-xs"
                 onClick={() => setTab(key)}
               >
-                {key === "outputs" ? "节点输出" : "完整日志"}
+                {key === "outputs" ? "节点输出" : "节点日志"}
               </Button>
             ))}
           </div>
