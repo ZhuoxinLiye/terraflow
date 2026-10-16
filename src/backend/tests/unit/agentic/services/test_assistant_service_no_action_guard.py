@@ -37,6 +37,38 @@ async def _collect(agen):
 
 
 @pytest.mark.asyncio
+async def test_read_only_inspection_completes_once_and_resets_capabilities():
+    from terraflow.agentic.services.inspection_context import inspection_only
+
+    def streaming_factory(**kw):
+        assert inspection_only.get() is True
+        assert "flow_builder" in kw["flow_filename"].lower()
+
+        async def gen():
+            yield "end", {"result": "scene_id=observed.after; max_bands=3"}
+
+        return gen()
+
+    with (
+        patch(f"{MODULE}.classify_intent", new_callable=AsyncMock, return_value=_make_intent("inspect_flow")),
+        patch(f"{MODULE}.execute_flow_file_streaming", side_effect=streaming_factory) as execute,
+        patch(f"{MODULE}.drain_flow_events", return_value=[]),
+    ):
+        events = await _collect(
+            execute_flow_with_validation_streaming(
+                flow_filename="TestFlow",
+                input_value="只检查当前流程,不修改、不运行",
+                global_variables={},
+                max_retries=3,
+            )
+        )
+    assert execute.call_count == 1
+    assert any('"event": "complete"' in event for event in events)
+    assert not any('"event": "error"' in event or '"step": "retrying"' in event for event in events)
+    assert inspection_only.get() is False
+
+
+@pytest.mark.asyncio
 async def test_should_retry_build_flow_when_agent_emits_no_canvas_actions():
     """is_flow_request + zero flow updates → re-prompt instead of fake success."""
     call_count = 0

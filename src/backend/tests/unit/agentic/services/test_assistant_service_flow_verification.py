@@ -95,6 +95,45 @@ class TestCharacterizationNoFlowIdPath:
 
 class TestFlowVerificationDeliversHonestCaveat:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("prompt", "already_ran"),
+        [
+            ("生成一个流程,不运行", False),
+            ("build a flow but do not run it", False),
+            ("create a flow and run the flow", True),
+        ],
+    )
+    async def test_does_not_run_forbidden_or_already_executed_flow(self, prompt, already_ran):
+        done = False
+
+        def drain():
+            nonlocal done
+            if done:
+                return []
+            done = True
+            updates = [{"action": "set_flow"}]
+            if already_ran:
+                updates.append({"action": "flow_ran", "flow_id": "flow-1"})
+            return updates
+
+        with (
+            patch(f"{MODULE}.classify_intent", AsyncMock(return_value=_intent("build_flow"))),
+            patch(f"{MODULE}.execute_flow_file_streaming", side_effect=lambda **_k: _stream_end()),
+            patch(f"{MODULE}.drain_flow_events", side_effect=drain),
+            patch(f"{MODULE}._verify_flow_before_delivery", new_callable=AsyncMock) as verify,
+        ):
+            events = await _collect(
+                execute_flow_with_validation_streaming(
+                    flow_filename="flow_builder_assistant",
+                    input_value=prompt,
+                    global_variables={"FLOW_ID": "11111111-1111-1111-1111-111111111111"},
+                    max_retries=1,
+                )
+            )
+        verify.assert_not_awaited()
+        assert _complete_payload(events)
+
+    @pytest.mark.asyncio
     async def test_should_deliver_caveat_when_built_flow_run_fails_non_fixably(self):
         run = AsyncMock(return_value={"error": "Incorrect API key provided"})
         with (

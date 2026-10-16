@@ -34,16 +34,19 @@ Intent Classification:
   Examples: "Create a component that calls an API", "Build me a custom component for...",
   "can you use dataframe output instead?", "add error handling", "make it also support CSV",
   "change the output to return a list", "use requests instead of urllib", "add a timeout parameter"
-- "build_flow": User wants to BUILD/CREATE/MODIFY a flow, EDIT component settings,
-  or is asking questions ABOUT THEIR CURRENT FLOW (what it does, inspect fields, diagnose).
-  This includes ANY request to change, update, or inspect specific component parameters.
+- "build_flow": User wants to BUILD/CREATE/MODIFY a flow or EDIT component settings.
+  This includes requests to change or update specific component parameters.
   Examples: "Build me a RAG pipeline", "Create a chatbot flow", "Make a flow that...",
   "Set up an agent with tools", "Build a flow that takes input and sends to OpenAI",
   "can you build a flow for me", "simple chat flow", "make a simple chatbot",
   "build me a flow", "create a flow",
-  "change the model to X", "set the temperature to Y", "update the system prompt",
-  "what does this flow do", "what's in my flow", "check my flow",
-  "find the value in", "what's configured", "diagnose my flow"
+  "change the model to X", "set the temperature to Y", "update the system prompt"
+- "inspect_flow": User wants only to READ/INSPECT the current flow, its parameters,
+  or the workspace data catalog and available data. No build/edit/run is requested.
+  Examples: "what does this flow do", "what's in my flow", "check my flow",
+  "find the value in", "what's configured", "diagnose my flow",
+  "有哪些 Sentinel-1 数据?只列出,不运行", "只检查当前流程的参数,不修改、不运行".
+  A request to inspect THEN modify/build/run is build_flow or run_flow, not inspect_flow.
 - "run_flow": User wants to EXECUTE/RUN/TEST the flow that is already on the canvas
   and (often) see/hear about its result. This is NOT building or editing — nothing
   on the canvas changes; the flow is executed as-is and its output is returned.
@@ -88,7 +91,7 @@ IMPORTANT rules:
 - "can you build a flow" = build_flow (requesting flow creation)
 - "change the model to X" = build_flow (editing a component setting)
 - "set the temperature" = build_flow (editing a component setting)
-- "what does this flow do" = build_flow (inspecting the current flow, NOT executing it)
+- "what does this flow do" = inspect_flow (read-only inspection)
 - "run the flow" / "rode o flow" / "execute o flow" / "test the flow" / "run it and
   tell me the result" = run_flow (EXECUTING the existing flow, never build_flow)
 - A request to RUN/EXECUTE/TEST the flow is run_flow even if it also asks for the
@@ -142,7 +145,7 @@ Explicit model extraction (CRITICAL for "use model X" requests):
 
 Output format (a single line of JSON only, no markdown):
 {{"translation": "<en>",
-"intent": "<generate_component|build_flow|run_flow|component_then_flow|manage_files|question|off_topic>",
+"intent": "<generate_component|build_flow|inspect_flow|run_flow|component_then_flow|manage_files|question|off_topic>",
 "requested_model": "<exact model name the user named, or empty>",
 "requested_provider": "<canonical provider of that model, or empty>"}}
 
@@ -195,7 +198,7 @@ Input: "set the temperature to 0.5"
 Output: {{"translation": "set the temperature to 0.5", "intent": "build_flow"}}
 
 Input: "what does this flow do?"
-Output: {{"translation": "what does this flow do?", "intent": "build_flow"}}
+Output: {{"translation": "what does this flow do?", "intent": "inspect_flow"}}
 
 Input: "can you use dataframe output instead?"
 Output: {{"translation": "can you use dataframe output instead?", "intent": "generate_component"}}

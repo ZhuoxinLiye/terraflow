@@ -77,6 +77,7 @@ export interface AgenticFlowUpdateEvent {
     | "connect"
     | "configure"
     | "set_flow"
+    | "run_result"
     | "edit_field"
     | "select_output"
     | "set_connection_mode"

@@ -6,6 +6,7 @@ flow building tools so it can create complete flows from user requests.
 
 import os
 
+from langchain_core.tools import StructuredTool
 from lfx.components.files_and_knowledge.command_execution import CommandExecutionToolComponent
 from lfx.components.files_and_knowledge.filesystem import FileSystemToolComponent
 from lfx.components.files_and_knowledge.word_document import WordDocumentToolComponent
@@ -30,7 +31,9 @@ from lfx.mcp.flow_builder_tools import (
 )
 
 from terraflow.agentic.flows.model_config import build_model_config
+from terraflow.agentic.services.data_catalog_tool import search_remote_sensing_data
 from terraflow.agentic.services.file_events import wrap_file_tool_with_event
+from terraflow.agentic.services.inspection_context import READ_TOOL_NAMES, inspection_only
 
 # Opt-in gate for the CLI/command-execution tool. Unlike the filesystem and
 # Word tools (which stay inside the FileSystemToolComponent sandbox boundary),
@@ -576,7 +579,14 @@ async def build_toolkit() -> list:
     ]
     tools: list = []
     for component in canvas_components:
+        if inspection_only.get() and not isinstance(
+            component, (SearchComponentTypes, DescribeComponentType, DescribeFlowIO, GetFieldValue)
+        ):
+            continue
         tools.extend(await component.to_toolkit())
+    tools.append(StructuredTool.from_function(search_remote_sensing_data))
+    if inspection_only.get():
+        return [tool for tool in tools if tool.name in READ_TOOL_NAMES]
     if assistant_geo_profile():
         return tools
 
@@ -651,6 +661,14 @@ projected area grids).
   When the user gives a file path instead of a catalog id, type the path into
   the tool's path field (`raster_path`, `input_path`, `band_a_path`, ...)
   directly; never put a path in `scene_id`.
+- **Select data from the live catalog:** call `search_remote_sensing_data`
+  before choosing data for a new task. Search by place/date/sensor, or query=""
+  to list available records. Copy IDs and paths from the result; never invent
+  them. Use SceneInput only for records with scene_input_available=true.
+  For STAC assets use the returned local asset path in compatible tools;
+  respect its bands, units, acquisition time and declared provenance. Missing
+  data or incompatible bands require an explanation or another selection.
+  Default to observed/user data; include test fixtures only on explicit request.
 - **New flow on an empty canvas: one `build_flow` call** with the whole spec,
   not a chain of `add_component` / `connect_components` calls (each costs a
   model call and the limit is 15).
@@ -683,6 +701,46 @@ TerraboxGeoRasterThresholdSegmentation `input_path` (SAR preset above,
 `output_path` under the output folder); its `api_run_model` → ToolResultField
 (`outputs.output_path`) `result`; ToolResultField `value` →
 TerraboxGeoWaterWaterExtent `label_path`.
+
+### Ready-to-build SAR recipe
+
+For this common task, the following built-in types/ports/configuration are
+already described here. After selecting a real single-band linear VV scene
+from the catalog, use ONE `build_flow` call with this complete spec. Replace
+SCENE_ID with the exact returned scene_id and UNIQUE with a fresh filename
+suffix. Do not spend a separate search+describe call on each of these known
+nodes; use discovery only for extensions or an actual builder error. Then
+call `run_flow` ONCE if execution was requested. Do not add nodes one by one.
+
+name: SAR water extent
+nodes:
+  Scene: SceneInput
+  Inspect: TerraboxRasterViewerInspectGeotiff
+  Mask: TerraboxGeoRasterThresholdSegmentation
+  MaskPath: ToolResultField
+  Extent: TerraboxGeoWaterWaterExtent
+edges:
+  Scene.path -> Inspect.raster_path
+  Scene.path -> Mask.input_path
+  Mask.api_run_model -> MaskPath.result
+  MaskPath.value -> Extent.label_path
+config:
+  Scene.scene_id: SCENE_ID
+  Inspect.include_histogram: false
+  Mask.input_transform: db
+  Mask.method: otsu
+  Mask.otsu_range: [-35.0, 5.0]
+  Mask.direction: below
+  Mask.foreground_value: 1
+  Mask.background_value: 0
+  Mask.nodata_value: 255
+  Mask.output_path: {output_dir}/water_mask_UNIQUE.tif
+  MaskPath.field_path: outputs.output_path
+
+Report this as threshold-estimated water extent. One date alone cannot
+establish new flooding, flood causation or accuracy. A successful tool call
+can still contain passed=false / execution_blocked: preserve the scientific
+refusal and do not report its downstream task as successful.
 """
 
 
@@ -712,6 +770,12 @@ def build_system_prompt() -> str:
     if assistant_geo_profile():
         base = _drop_sections(base, GEO_PROFILE_DROPPED_SECTIONS)
     system_prompt = base + geo_prompt_addendum()
+    if inspection_only.get():
+        system_prompt += (
+            "\nREAD-ONLY TURN: inspect the current flow or catalog with the available read tools, "
+            "then answer in the user's language and STOP. Do not propose edits, build, run, "
+            "write files, or claim those actions occurred. A text answer is a completed inspection."
+        )
     if assistant_cli_tool_enabled() and not assistant_geo_profile():  # build_toolkit skips it under geo
         system_prompt += CLI_TOOL_PROMPT_ADDENDUM
     return system_prompt

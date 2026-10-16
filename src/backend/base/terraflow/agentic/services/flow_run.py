@@ -26,9 +26,13 @@ resilient to dict-shaped data):
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from datetime import datetime, timezone
 from time import perf_counter
 from typing import Any
+
+from lfx.serialization.serialization import serialize
 
 from terraflow.agentic.helpers.code_security import scan_code_security
 from terraflow.agentic.helpers.error_handling import extract_friendly_error
@@ -214,6 +218,42 @@ def _scan_flow_component_code(payload: dict) -> list[str]:
     return violations
 
 
+def extract_vertex_results(graph: Any) -> list[dict]:
+    """Serialize actual node results in the native build-pool event shape.
+
+    No second execution and no inference from assistant text. Scientific
+    execution_blocked / reason_code are preserved in the tool payload.
+    """
+    records = []
+    for vertex in _get(graph, "vertices") or []:
+        result = _get(vertex, "result")
+        node_id = _get(vertex, "id")
+        if result is None or not node_id:
+            continue
+        # Native artifacts contain model classes (for port types), which
+        # Pydantic JSON mode rejects. Match the native build serializer.
+        data = serialize(result)
+        if not isinstance(data, dict):
+            continue
+        data = {**data, "outputs": data.get("outputs") or {}, "logs": data.get("logs") or {}}
+        records.append(
+            {
+                "id": node_id,
+                "data": data,
+                "valid": True,
+                "run_id": str(_get(graph, "run_id") or ""),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "inactivated_vertices": [],
+                "next_vertices_ids": [],
+                "top_level_vertices": [],
+                "params": {},
+                "messages": data.get("messages") or [],
+                "artifacts": data.get("artifacts") or {},
+            }
+        )
+    return records
+
+
 async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None) -> dict:
     """Run the assistant's current canvas flow in-process and return its result.
 
@@ -290,4 +330,26 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
         metrics["duration_seconds"],
         metrics["total_tokens"],
     )
-    return {"result": extract_run_result_text(run_outputs), "metrics": metrics}
+    vertex_results = extract_vertex_results(graph)
+    text = extract_run_result_text(run_outputs)
+    if text == _NO_OUTPUT:
+        # The engine's run_outputs only includes chat/output components.
+        # A geospatial tool can finish at a Data port with no ChatOutput;
+        # report its actual terminal-node data rather than "(no output)".
+        sources = {edge.get("source") for edge in payload.get("edges", [])}
+        terminal_results = [
+            {
+                "component_id": record["id"],
+                "results": record["data"].get("results"),
+                "outputs": record["data"].get("outputs"),
+            }
+            for record in vertex_results
+            if record["id"] not in sources
+        ]
+        if terminal_results:
+            text = json.dumps(terminal_results, ensure_ascii=False)[:MAX_RESULT_CHARS]
+    return {
+        "result": text,
+        "metrics": metrics,
+        "vertex_results": vertex_results,
+    }

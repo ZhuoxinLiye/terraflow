@@ -16,6 +16,7 @@
 import type { useUpdateNodeInternals } from "@xyflow/react";
 import type { AgenticFlowUpdateEvent } from "@/controllers/API/queries/agentic";
 import useFlowStore from "@/stores/flowStore";
+import type { VertexBuildTypeAPI } from "@/types/api";
 
 type UpdateNodeInternals = ReturnType<typeof useUpdateNodeInternals>;
 
@@ -40,6 +41,44 @@ export function applyFlowUpdate(
   updateNodeInternals: UpdateNodeInternals,
 ): void {
   switch (event.action) {
+    case "run_result": {
+      const state = useFlowStore.getState();
+      if (
+        event.flow_id !== state.currentFlow?.id ||
+        !Array.isArray(event.vertex_results)
+      ) {
+        warnDrop("run_result", "flow mismatch or invalid records");
+        break;
+      }
+      const nodeIds = new Set(state.nodes.map((node) => node.id));
+      const records = event.vertex_results;
+      if (
+        !records.every(
+          (r) =>
+            isPlainObject(r) &&
+            isNonEmptyString(r.id) &&
+            nodeIds.has(r.id) &&
+            typeof r.valid === "boolean" &&
+            isNonEmptyString(r.run_id) &&
+            isPlainObject(r.data) &&
+            isPlainObject(r.data.outputs) &&
+            isPlainObject(r.data.logs),
+        )
+      ) {
+        warnDrop("run_result", "malformed or unknown node result");
+        break;
+      }
+      const pool = { ...state.flowPool };
+      for (const record of records as VertexBuildTypeAPI[]) {
+        const previous = pool[record.id] ?? [];
+        pool[record.id] = [
+          ...previous.filter((r) => r.run_id !== record.run_id),
+          record,
+        ];
+      }
+      state.setFlowPool(pool);
+      break;
+    }
     case "set_flow": {
       const flow = event.flow as {
         data?: { nodes?: unknown[]; edges?: unknown[] };

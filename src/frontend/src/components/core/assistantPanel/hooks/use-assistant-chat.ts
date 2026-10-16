@@ -442,6 +442,7 @@ export function useAssistantChat(): UseAssistantChatReturn {
               }
               if (event.action === "set_flow") {
                 if (skipAllRef.current || event.auto_apply === true) {
+                  proposalPendingRef.current = false;
                   // Skip-all OR a compound-pipeline auto-apply (the user
                   // explicitly asked to clear+replace the canvas): apply
                   // directly using the event

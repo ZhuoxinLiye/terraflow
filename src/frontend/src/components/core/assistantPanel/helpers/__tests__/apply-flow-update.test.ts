@@ -21,12 +21,29 @@ const asInternals = (v: unknown): UpdateNodeInternalsFn =>
 // Mock the canvas store BEFORE the helper imports it.
 const setNodes = jest.fn();
 const setEdges = jest.fn();
+const setFlowPool = jest.fn();
+const refusedRun = {
+  id: "Gate-1",
+  valid: true,
+  run_id: "run-1",
+  data: {
+    outputs: {},
+    logs: {},
+    results: {
+      gate: { execution_blocked: true, reason_code: "shape_mismatch" },
+    },
+  },
+};
 jest.mock("@/stores/flowStore", () => ({
   __esModule: true,
   default: {
     getState: () => ({
       setNodes,
       setEdges,
+      setFlowPool,
+      currentFlow: { id: "flow-1" },
+      nodes: [{ id: "Gate-1" }],
+      flowPool: { "Gate-1": [refusedRun] },
       reactFlowInstance: { fitView: jest.fn() },
     }),
   },
@@ -37,10 +54,42 @@ const noopUpdateNodeInternals = jest.fn();
 beforeEach(() => {
   setNodes.mockClear();
   setEdges.mockClear();
+  setFlowPool.mockClear();
   noopUpdateNodeInternals.mockClear();
 });
 
 describe("applyFlowUpdate — boundary validation", () => {
+  describe("run_result", () => {
+    it("keeps actual scientific refusal and deduplicates one run", () => {
+      applyFlowUpdate(
+        asEvent({
+          event: "flow_update",
+          action: "run_result",
+          flow_id: "flow-1",
+          vertex_results: [refusedRun],
+        }),
+        asInternals(noopUpdateNodeInternals),
+      );
+      expect(setFlowPool).toHaveBeenCalledWith({ "Gate-1": [refusedRun] });
+      expect(setNodes).not.toHaveBeenCalled();
+    });
+    it.each([
+      ["wrong-flow", [refusedRun]],
+      ["flow-1", [{ ...refusedRun, id: "unknown" }]],
+      ["flow-1", [{ ...refusedRun, data: null }]],
+    ])("drops stale or malformed results", (flow_id, vertex_results) => {
+      applyFlowUpdate(
+        asEvent({
+          event: "flow_update",
+          action: "run_result",
+          flow_id,
+          vertex_results,
+        }),
+        asInternals(noopUpdateNodeInternals),
+      );
+      expect(setFlowPool).not.toHaveBeenCalled();
+    });
+  });
   describe("set_flow", () => {
     it("should_skip_canvas_replace_when_flow_data_nodes_is_not_an_array", () => {
       const malformed = {

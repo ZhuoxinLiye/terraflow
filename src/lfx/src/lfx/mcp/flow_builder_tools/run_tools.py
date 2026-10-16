@@ -333,7 +333,7 @@ class RunFlow(Component):
         # flow to the canvas (running a flow the user can't see is
         # contradictory) instead of guessing intent from the prompt wording.
         # Emitted only on success — a failed run must never claim it ran.
-        _emit("flow_ran", flow_id=flow_id)
+        _emit("flow_ran", flow_id=flow_id, vertex_results=result.get("vertex_results", []))
         text = result.get("result", "")
         metrics = result.get("metrics") or {}
         summary = _format_run_metrics(metrics)

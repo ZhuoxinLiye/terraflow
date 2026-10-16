@@ -77,8 +77,13 @@ from terraflow.agentic.services.flow_types import (
 )
 from terraflow.agentic.services.flow_verification import FlowVerificationStatus, verify_built_flow
 from terraflow.agentic.services.geo_wiring import geo_wiring_errors
-from terraflow.agentic.services.helpers.intent_classification import _looks_like_run_request, classify_intent
+from terraflow.agentic.services.helpers.intent_classification import (
+    _forbids_flow_execution,
+    _looks_like_run_request,
+    classify_intent,
+)
 from terraflow.agentic.services.helpers.intent_context import build_intent_context
+from terraflow.agentic.services.inspection_context import READ_TOOL_NAMES, inspection_only
 from terraflow.agentic.services.provider_service import get_provider_model_candidates
 from terraflow.agentic.services.request_framing import decide_progress_step
 from terraflow.agentic.services.user_components import register_user_component_if_valid
@@ -96,7 +101,7 @@ def _flow_verification_enabled() -> bool:
     return os.getenv(FLOW_VERIFICATION_ENABLED_ENV, "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
-_READ_TOOLS = frozenset({"search_components", "describe_component", "describe_flow_io", "get_field_value"})
+_READ_TOOLS = READ_TOOL_NAMES
 
 
 def _tool_step(name: str) -> str:
@@ -483,8 +488,8 @@ def _reconcile_flow_updates(
       re-applying the same flow is idempotent (full replace);
     - ``set_flow_applied`` guards against ever emitting it twice.
 
-    ``flow_ran`` is an internal signal and is never forwarded to the
-    frontend (it has no canvas reducer).
+    ``flow_ran`` is internal; real node results are forwarded as
+    ``run_result`` after canvas reconciliation to match the visible graph.
 
     Args:
         updates: The freshly drained event batch.
@@ -529,6 +534,11 @@ def _reconcile_flow_updates(
         events.append(reapply)
         set_flow_applied = True
 
+    events.extend(
+        {"action": "run_result", "flow_id": update.get("flow_id"), "vertex_results": update["vertex_results"]}
+        for update in updates
+        if update.get("action") == "flow_ran" and update.get("vertex_results")
+    )
     return events, auto_apply_flow, saw_set_flow, saw_run, last_set_flow, set_flow_applied
 
 
@@ -682,6 +692,7 @@ async def execute_flow_with_validation_streaming(
     # not go through the plan gate nor the no-action build guard. It shares
     # the FlowBuilderAssistant toolkit only because that's where run_flow lives.
     is_run_request = intent_result.intent == "run_flow"
+    is_inspection = intent_result.intent == "inspect_flow"
     logger.info(f"Intent classification: {intent_result.intent}")
 
     # Inject current flow context for all intents so the agent
@@ -769,7 +780,7 @@ async def execute_flow_with_validation_streaming(
     # Build-flow and manage_files both route to the FlowBuilderAssistant —
     # they share the same toolkit (canvas tools + filesystem). The step label
     # and the SSE drain semantics differ but the underlying agent does not.
-    if is_flow_request or is_document_request or is_run_request:
+    if is_flow_request or is_document_request or is_run_request or is_inspection:
         flow_filename = FLOW_BUILDER_ASSISTANT_FLOW
 
     # Create cancel event for propagating cancellation to flow executor
@@ -788,6 +799,7 @@ async def execute_flow_with_validation_streaming(
     # still record the *final* successful response.
     final_response_text = ""
 
+    inspection_token = inspection_only.set(is_inspection)
     try:
         # Bind the caller's user_id into the ContextVar that the MCP tools'
         # registry overlay reads (search_components / describe_component /
@@ -1129,7 +1141,12 @@ async def execute_flow_with_validation_streaming(
                 # delivered with an honest caveat instead of as a confident
                 # success. Skipped (returns None) when the kill switch is
                 # off / no FLOW_ID / empty canvas → unchanged behavior.
-                if is_flow_request and saw_set_flow:
+                if (
+                    is_flow_request
+                    and saw_set_flow
+                    and not saw_run
+                    and not _forbids_flow_execution(original_user_input)
+                ):
                     # The trial run (and any fix turn) can take minutes; say so.
                     if _flow_verification_enabled():
                         yield format_progress_event(
@@ -1409,6 +1426,7 @@ async def execute_flow_with_validation_streaming(
 
             current_input = VALIDATION_RETRY_TEMPLATE.format(error=validation.error, code=code)
     finally:
+        inspection_only.reset(inspection_token)
         # Always set cancel event when generator exits to stop any pending flow execution
         logger.debug("Assistant generator exiting, setting cancel event")
         cancel_event.set()

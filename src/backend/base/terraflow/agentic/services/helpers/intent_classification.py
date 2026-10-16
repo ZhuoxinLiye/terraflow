@@ -50,7 +50,54 @@ def _looks_like_run_request(text: str) -> bool:
     turn that mentioned running can't false-positive the current one.
     """
     message = text.rsplit("User message:", 1)[-1] if "User message:" in text else text
-    return bool(_RUN_FLOW_RE.search(message))
+    message = re.sub(
+        r"(?:不|别|不要|无需)(?:修改|执行|运行)|\b(?:do not|don't|never)\s+(?:run|execute|test)\b",
+        "",
+        message,
+        flags=re.IGNORECASE,
+    )
+    return bool(
+        _RUN_FLOW_RE.search(message)
+        or re.search(
+            r"(?:执行|运行|跑一下)[^。！？!?\n]{0,15}(?:工作流|流程|flow)|^(?:执行|运行|跑一下)(?:一下|它|当前的)?[。！!\s]*$",  # noqa: RUF001
+            message,
+            re.IGNORECASE,
+        )
+    )
+
+
+def _looks_like_inspection(text: str) -> bool:
+    """Only explicit read-only turns bypass the classifier; mixed actions don't."""
+    message = text.rsplit("User message:", 1)[-1]
+    read_only = re.search(
+        r"只(?:检查|查看|查询|列出|读)|不修改[、，,\s]*不运行|\bread.only\b",  # noqa: RUF001
+        message,
+        re.IGNORECASE,
+    )
+    positive = re.sub(
+        r"(?:不|别|不要|无需)(?:修改|执行|运行|生成|创建)|"
+        r"\b(?:do not|don't|never)\s+(?:run|execute|test|modify|build)\b",
+        "",
+        message,
+        flags=re.IGNORECASE,
+    )
+    mutation = re.search(
+        r"修改|执行|运行|生成|创建|搭建|构建|添加|删除|设置|\b(build|create|modify|run|execute|add|remove|set)\b",
+        positive,
+        re.IGNORECASE,
+    )
+    return bool(read_only and not mutation)
+
+
+def _forbids_flow_execution(text: str) -> bool:
+    """Respect explicit generation-only requests, including the trial runner."""
+    return bool(
+        re.search(
+            r"(?:不|不要|别|无需)(?:执行|运行)|\b(?:do not|don't|never)\s+(?:run|execute|test)\b",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 # An explicit request to build/create a flow. The classifier is the source of truth, but some
@@ -127,6 +174,8 @@ def _finalize(
     """
     rm = (requested_model or "").strip() or None
     rp = (requested_provider or "").strip() or None
+    if _looks_like_inspection(text):
+        return IntentResult(translation=translation, intent="inspect_flow")
     if intent == "question" and _looks_like_run_request(translation or text):
         logger.info("intent.run_flow: classifier returned question; rescued explicit run request")
         return IntentResult(translation=translation, intent="run_flow", requested_model=rm, requested_provider=rp)
@@ -181,6 +230,13 @@ async def classify_intent(
     if text.strip() == PLAN_APPROVAL_INPUT:
         logger.info("intent.build_flow.deterministic: plan-approval continuation signal")
         return IntentResult(translation=text, intent="build_flow")
+
+    if _looks_like_inspection(text):
+        return IntentResult(translation=text, intent="inspect_flow")
+    positive_actions = re.sub(r"(?:不要|无需|不|别)(?:修改|执行|运行|生成|创建)", "", text)
+    has_edits = re.search(r"修改|更改|设置|添加|删除|连接|配置|更新|替换|构建|创建|搭建|生成", positive_actions)
+    if _CJK_RE.search(text) and _looks_like_run_request(text) and not has_edits:
+        return IntentResult(translation=text, intent="run_flow")
 
     # Deterministic: an explicit "build a workflow" request (not a how-to question)
     # is a flow build. Skipping the TranslationFlow saves a full model round-trip
@@ -273,7 +329,7 @@ async def classify_intent(
                 # Use strict patterns to avoid matching prompt-echoes
                 intent_match = re.search(
                     r'["\']intent["\']\s*:\s*["\']'
-                    r"(generate_component|build_flow|run_flow|component_then_flow|off_topic)[\"']",
+                    r"(generate_component|build_flow|inspect_flow|run_flow|component_then_flow|off_topic)[\"']",
                     response_text,
                 )
                 if intent_match:
