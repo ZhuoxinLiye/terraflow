@@ -355,3 +355,102 @@ describe("useAssistantChat — refining plan UX", () => {
     });
   });
 });
+
+describe("reusable flow confirmation", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    localStorage.clear();
+    mockPostAssistStream.mockResolvedValue(undefined);
+  });
+
+  async function setupReusable() {
+    mockPostAssistStream.mockImplementationOnce(async (_request, callbacks) => {
+      callbacks.onFlowUpdate({
+        event: "flow_update",
+        action: "propose_plan",
+        proposal_kind: "reusable_flow",
+        markdown: "Reusable snapshot",
+        approval_input: "Approve reusable flow: asset-id",
+        dismissal_input: "Dismiss reusable flow: asset-id",
+      });
+      callbacks.onComplete({
+        event: "complete",
+        data: { result: "Analysis done", validated: true },
+      });
+    });
+    const hook = renderHook(() => useAssistantChat());
+    // Enable skip-all before the proposal arrives: asset publication must still wait.
+    act(() => {
+      if (!hook.result.current.skipAll) hook.result.current.toggleSkipAll();
+    });
+    await act(async () => {
+      await hook.result.current.handleSend("run analysis", TEST_MODEL);
+    });
+    const message = hook.result.current.messages.find(
+      (m) => m.pendingPlanProposal,
+    )!;
+    return { hook, message };
+  }
+
+  it("requires explicit approval even with skip-all and sends the asset confirmation", async () => {
+    const { hook, message } = await setupReusable();
+    expect(message.planProposalStatus).toBe("pending");
+    expect(mockPostAssistStream).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await hook.result.current.handleApprovePlan(message.id);
+    });
+    expect(mockPostAssistStream.mock.calls[1][0].input_value).toBe(
+      "Approve reusable flow: asset-id",
+    );
+    expect(
+      hook.result.current.messages.filter((m) => m.role === "user").at(-1)
+        ?.content,
+    ).toBe("同意，保存为可复用流程。");
+  });
+
+  it("dismisses the asset without entering plan refinement", async () => {
+    const { hook, message } = await setupReusable();
+    await act(async () => {
+      await hook.result.current.handleDismissPlan(message.id);
+    });
+    expect(mockPostAssistStream.mock.calls[1][0].input_value).toBe(
+      "Dismiss reusable flow: asset-id",
+    );
+    expect(
+      hook.result.current.messages.find((m) => m.id === message.id)
+        ?.planProposalStatus,
+    ).toBe("dismissed");
+    expect(hook.result.current.isRefiningPlan).toBe(false);
+  });
+});
+
+describe("reusable confirmation after history restore", () => {
+  it("uses the restored proposal model and sends confirmation without a prior chat turn", async () => {
+    mockPostAssistStream.mockClear();
+    mockPostAssistStream.mockResolvedValue(undefined);
+    const hook = renderHook(() => useAssistantChat());
+    act(() =>
+      hook.result.current.loadSession("restored", [
+        {
+          id: "restored-proposal",
+          role: "assistant",
+          content: "Done",
+          status: "complete",
+          timestamp: new Date(),
+          planProposalStatus: "pending",
+          pendingPlanProposal: {
+            markdown: "Save?",
+            model: TEST_MODEL,
+            approvalInput: "Approve reusable flow: restored-id",
+          },
+        },
+      ]),
+    );
+    await act(async () => {
+      await hook.result.current.handleApprovePlan("restored-proposal");
+    });
+    expect(mockPostAssistStream.mock.calls[0][0].input_value).toBe(
+      "Approve reusable flow: restored-id",
+    );
+  });
+});

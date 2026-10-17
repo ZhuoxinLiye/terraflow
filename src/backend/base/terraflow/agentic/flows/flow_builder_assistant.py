@@ -585,6 +585,9 @@ async def build_toolkit() -> list:
             continue
         tools.extend(await component.to_toolkit())
     tools.append(StructuredTool.from_function(search_remote_sensing_data))
+    from terraflow.agentic.services.reusable_flows import search_reusable_flows
+
+    tools.append(StructuredTool.from_function(coroutine=search_reusable_flows))
     if inspection_only.get():
         return [tool for tool in tools if tool.name in READ_TOOL_NAMES]
     if assistant_geo_profile():
@@ -638,6 +641,48 @@ async def build_toolkit() -> list:
 
 GEO_PROMPT_ADDENDUM = """
 
+## Reuse existing analysis methods
+
+Before building a remote-sensing analysis, call search_reusable_flows for the
+task/subtasks. It returns ONLY user-approved assets with real IDs, versions,
+input contracts, and the prior execution evidence. Check input conditions;
+then use ReusableFlow nodes for covered subtasks instead of rebuilding them.
+Each node has asset_id (set to returned flow_id), version, bindings (a JSON string, e.g.
+'{"scene_id":"thessaly_2023_s1.before"}'). Its result port is Data; a
+ToolResultField can extract outputs.water_area_m2, outputs.output_path, etc.
+Use one node per invocation/new input. Keep remaining tools as ordinary nodes.
+For a two-date comparison, use WaterInputSet -> TerraboxGeoWaterRasterProfilePreflight
+and wire the preflight result to BOTH ReusableFlow.preconditions inputs.
+This optional Data input enforces a successful upstream gate before execution.
+Configure each bindings field with its own catalog scene ID. Both result ports
+are terminal outputs; run_flow reports both, so no merge component is needed.
+Do not expand the saved subgraph. For other joins discover actual components/ports.
+A single-scene asset can cover EACH independent single-scene estimate in a
+larger two-date task. Its example date in the name is not a fixed date
+restriction; consult method_steps and input conditions. Prefer the compatible
+asset for that subtask; add comparability gates in the parent. The raw SAR
+recipe below applies only when retrieval found no compatible method.
+Always search for real IDs; never guess an asset ID from a source canvas ID.
+For the known two-date independent-estimate pattern, these ports are already
+specified (no extra describe calls needed): Pair: WaterInputSet with input_set
+from the catalog; Gate: TerraboxGeoWaterRasterProfilePreflight; Before and
+After: ReusableFlow. Edges: Pair.before_path -> Gate.before_path;
+Pair.after_path -> Gate.after_path; Gate.api_run_model -> Before.preconditions;
+Gate.api_run_model -> After.preconditions. Set both asset_id/version from search flow_id/version,
+and each bindings to a JSON STRING with the corresponding scene_id. Build
+once, then run_flow. Do not add the saved flow's internal nodes to the parent.
+The child graph executes afresh and returns version, bindings and run IDs.
+Saved numbers/masks are never answers for a new input. Incompatible scenes
+are rejected at invocation. Shape/CRS agreement does not prove all scientific
+comparability or flood causation; retain ordinary scientific gates.
+
+After a successful SceneInput-based run, the system proposes a reusable
+snapshot via a confirmation card. Tell the user they may save it for reuse.
+It is a DRAFT until the user clicks 保存为可复用流程. Do NOT claim it has
+been registered, ask to bypass the card, or run the flow again to save it.
+Unsupported flow input types are not automatically proposed. A single
+successful run is engineering evidence, never proof of scientific accuracy.
+
 ## Geospatial flows with Terrabox tools (CRITICAL)
 
 Raster and geospatial analysis (remote sensing, water, flood, SAR, NDWI,
@@ -684,11 +729,15 @@ projected area grids).
   `nodata_value=255`. **NDWI water**: `TerraboxGeoRasterCalculateIndex` on
   green and NIR, then threshold with `method="fixed"`, `threshold=0`,
   `direction="above"`, same label values.
-- **Two dates use ONE threshold:** run Otsu on the AFTER scene only; threshold
-  the BEFORE scene with `method="fixed"` and the same value — wire the after
-  tool's `api_run_model` → a `ToolResultField` (`field_path = "outputs.threshold"`)
-  → the before tool's `threshold`. Never run Otsu separately on each date: a
-  dry pre-event scene gives a meaningless threshold and hides the new water.
+- **Distinguish independent estimates from change claims:** if the user asks for
+  single-scene water estimates and their area difference, reuse a matching
+  single-scene method for each date. Adaptive Otsu thresholds may differ;
+  report both and explain that area difference mixes scene/method effects,
+  not newly flooded pixels. Do not replace this requested task with flood
+  change analysis. Pixelwise inundation/change requires comparable masks,
+  common valid support and explicit checks; one option is an after-derived
+  shared threshold applied to both scenes. A flow with independently adaptive
+  thresholds does not supply that shared-threshold method.
 - **Order:** inspect (`TerraboxRasterViewerInspectGeotiff`) first; for two
   dates run `TerraboxGeoWaterRasterProfilePreflight` on the pair before any
   pairwise step; measure area only with `TerraboxGeoWaterWaterExtent` (one
@@ -705,7 +754,8 @@ TerraboxGeoWaterWaterExtent `label_path`.
 ### Ready-to-build SAR recipe
 
 For this common task, the following built-in types/ports/configuration are
-already described here. After selecting a real single-band linear VV scene
+already described here. Use this recipe ONLY when no compatible reusable
+asset covers the subtask. After selecting a real single-band linear VV scene
 from the catalog, use ONE `build_flow` call with this complete spec. Replace
 SCENE_ID with the exact returned scene_id and UNIQUE with a fresh filename
 suffix. Do not spend a separate search+describe call on each of these known

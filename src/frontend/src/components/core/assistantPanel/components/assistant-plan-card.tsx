@@ -11,6 +11,7 @@ import {
 interface AssistantPlanCardProps {
   /** Raw markdown body of the plan as emitted by the agent's propose_plan tool. */
   markdown: string;
+  reusable?: boolean;
   /** Drives which actions render. */
   status: PlanProposalStatus;
   /** Fires when the user clicks Continue (pending or refining state). */
@@ -30,6 +31,7 @@ interface AssistantPlanCardProps {
  */
 export function AssistantPlanCard({
   markdown,
+  reusable = false,
   status,
   onApprove,
   onDismiss,
@@ -56,7 +58,11 @@ export function AssistantPlanCard({
             isRefining ? "text-muted-foreground" : "text-foreground",
           )}
         >
-          {isRefining ? "Refining plan" : "Proposed plan"}
+          {reusable
+            ? "保存为可复用流程"
+            : isRefining
+              ? "Refining plan"
+              : "Proposed plan"}
         </span>
         {isRefining && (
           <span className="text-xs text-muted-foreground/70">
@@ -100,7 +106,7 @@ export function AssistantPlanCard({
             className={GHOST_PRIMARY_BUTTON}
             onClick={() => onApprove?.()}
           >
-            <span>Continue</span>
+            <span>{reusable ? "保存为可复用流程" : "Continue"}</span>
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
           <button
@@ -124,7 +130,7 @@ export function AssistantPlanCard({
             className={GHOST_PRIMARY_BUTTON}
             onClick={() => onApprove?.()}
           >
-            <span>Continue</span>
+            <span>{reusable ? "保存为可复用流程" : "Continue"}</span>
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
           <button
@@ -134,7 +140,7 @@ export function AssistantPlanCard({
             onClick={() => onDismiss?.()}
           >
             <X className="h-3.5 w-3.5" />
-            <span>Dismiss</span>
+            <span>{reusable ? "暂不保存" : "Dismiss"}</span>
           </button>
         </>
       );
@@ -143,13 +149,15 @@ export function AssistantPlanCard({
       return (
         <div className="flex h-7 items-center gap-1.5 px-2 text-sm font-medium text-accent-emerald-foreground">
           <ArrowRight className="h-3.5 w-3.5" />
-          <span>Plan approved</span>
+          <span>
+            {reusable ? "已确认，保存结果见下方回复" : "Plan approved"}
+          </span>
         </div>
       );
     }
     return (
       <div className="flex h-7 items-center gap-1.5 px-2 text-sm font-medium text-muted-foreground line-through">
-        <span>Dismissed</span>
+        <span>{reusable ? "暂不保存" : "Dismissed"}</span>
       </div>
     );
   }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from functools import lru_cache
 from typing import Any
 
 from lfx.interface.earthflow_terrabox import (
@@ -37,6 +38,15 @@ _EARTHFLOW_NATIVE_TOOL_NAMES: frozenset[str] = frozenset({"WordDocumentTool", "C
 _terrabox_categories_seen: set[str] = set()
 
 
+@lru_cache(maxsize=1)
+def reusable_flow_template() -> dict:
+    from lfx.components.geo_workflow.reusable_flow import ReusableFlowComponent
+    from lfx.custom.utils import build_custom_component_template
+
+    template, _ = build_custom_component_template(ReusableFlowComponent())
+    return template
+
+
 def earthflow_components_enabled() -> bool:
     value = os.getenv(EARTHFLOW_COMPONENTS_ENABLED, "1").strip().lower()
     return value not in {"0", "false", "no", "off"}
@@ -65,6 +75,7 @@ def apply_earthflow_component_policy(
         return all_types
 
     result = {category: dict(components) for category, components in all_types.items()}
+    result.setdefault("geo_workflow", {})["ReusableFlow"] = reusable_flow_template()
     earthflow_native_tools = _extract_earthflow_native_tools(result)
     result = {category: components for category, components in result.items() if components}
 

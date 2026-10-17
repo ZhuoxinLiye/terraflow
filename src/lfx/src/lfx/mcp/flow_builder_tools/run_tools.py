@@ -1,3 +1,5 @@
+# Chinese interface text intentionally uses Chinese punctuation.
+# ruff: noqa: RUF001
 """Plan / build / run / generate orchestration tools.
 
 The "do the bigger thing" tools — propose a plan to the user, build a whole
@@ -334,7 +336,28 @@ class RunFlow(Component):
         # contradictory) instead of guessing intent from the prompt wording.
         # Emitted only on success — a failed run must never claim it ran.
         _emit("flow_ran", flow_id=flow_id, vertex_results=result.get("vertex_results", []))
+        from terraflow.agentic.services.reusable_flows import APPROVE, DISMISS, propose_after_run
+
+        proposal = None
+        proposal_error = None
+        try:
+            proposal = await propose_after_run(user_id=user_id, source_id=flow_id, flow_data=flow, result=result)
+        except Exception as exc:  # noqa: BLE001 - proposal persistence must not discard a successful scientific run
+            logger.warning("run_flow.reuse_proposal_failed: %s", type(exc).__name__)
+            proposal_error = "本次分析已执行，但生成复用草稿失败；尚未保存可复用流程。"
+        if proposal:
+            _emit(
+                "propose_plan",
+                markdown=proposal["markdown"],
+                approval_input=APPROVE + proposal["flow_id"],
+                dismissal_input=DISMISS + proposal["flow_id"],
+                proposal_kind="reusable_flow",
+            )
         text = result.get("result", "")
+        if proposal_error:
+            text += "\n\n" + proposal_error
+        if proposal:
+            text += "\n已提出保存为可复用流程的建议，等待用户确认；尚未发布。不要重新运行来保存。"
         metrics = result.get("metrics") or {}
         summary = _format_run_metrics(metrics)
         # The LLM only reads `text`, so the performance summary must be inline

@@ -14,6 +14,7 @@ export type AssistantMessageStatus =
   | "cancelled";
 
 export interface AssistantMessage {
+  requestInput?: string;
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -142,6 +143,9 @@ export type PlanProposalStatus =
 export interface PendingPlanProposal {
   /** Raw markdown emitted by the agent's propose_plan tool. */
   markdown: string;
+  approvalInput?: string;
+  model?: AssistantModel;
+  dismissalInput?: string;
 }
 
 export interface PendingFlowProposal {

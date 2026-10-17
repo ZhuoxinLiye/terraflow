@@ -220,6 +220,7 @@ export function AssistantMessageBody({
         {message.content && <ChatMarkdown>{message.content}</ChatMarkdown>}
         <AssistantPlanCard
           markdown={message.pendingPlanProposal.markdown}
+          reusable={Boolean(message.pendingPlanProposal.approvalInput)}
           status={message.planProposalStatus}
           onApprove={() => onApprovePlan?.(message.id)}
           onDismiss={() => onDismissPlan?.(message.id)}

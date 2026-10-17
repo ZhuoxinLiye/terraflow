@@ -1,3 +1,5 @@
+# Chinese interface text intentionally uses Chinese punctuation.
+# ruff: noqa: RUF001
 """Terraflow Assistant API router.
 
 This module provides the HTTP endpoints for the Terraflow Assistant.
@@ -26,8 +28,8 @@ from terraflow.agentic.services.assistant_service import (
 )
 from terraflow.agentic.services.flow_executor import execute_flow_file
 from terraflow.agentic.services.flow_types import (
-    TERRAFLOW_ASSISTANT_FLOW,
     MAX_VALIDATION_RETRIES,
+    TERRAFLOW_ASSISTANT_FLOW,
 )
 from terraflow.agentic.services.provider_service import (
     PREFERRED_PROVIDERS,
@@ -37,6 +39,38 @@ from terraflow.agentic.services.provider_service import (
 from terraflow.api.utils.core import CurrentActiveUser, DbSession
 
 router = APIRouter(prefix="/agentic", tags=["Agentic"])
+
+
+async def _reuse_confirmation(request: AssistantRequest, user_id: UUID) -> dict | None:
+    """Only an explicit user protocol action can publish a proposed asset.
+
+    The model has no confirmation tool. Draft ownership and its source canvas
+    are checked again here, including after a server/browser restart.
+    """
+    from terraflow.agentic.services.reusable_flows import APPROVE, DISMISS, confirm_proposal
+
+    text = (request.input_value or "").strip()
+    prefix = next((p for p in (APPROVE, DISMISS) if text.startswith(p)), None)
+    if prefix is None:
+        return None
+    try:
+        asset = await confirm_proposal(
+            proposal_id=str(UUID(text[len(prefix) :])),
+            source_id=request.flow_id,
+            user_id=str(user_id),
+            approve=prefix == APPROVE,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if asset["state"] == "active":
+        reply = (
+            f"已保存为可复用流程：[{asset['name']}](/flow/{asset['flow_id']})。\n\n"
+            f"Flow ID：`{asset['flow_id']}`；版本：`{asset['version']}`。\n\n"
+            "后续新会话可检索并作为子流程调用；每次绑定新影像、重新检查和执行。"
+        )
+    else:
+        reply = "暂不保存为可复用流程；当前画布和运行结果保留。"
+    return {"result": reply, "success": True, "reusable_flow": asset}
 
 
 @dataclass(frozen=True)
@@ -279,6 +313,9 @@ async def assist(
 ) -> dict:
     """Chat with the Terraflow Assistant."""
     await _validate_flow_access(request.flow_id, current_user.id, session)
+    confirmation = await _reuse_confirmation(request, current_user.id)
+    if confirmation is not None:
+        return confirmation
     ctx = await _resolve_assistant_context(request, current_user.id, session)
 
     logger.info(f"Executing {TERRAFLOW_ASSISTANT_FLOW} with {ctx.provider}/{ctx.model_name}")
@@ -305,6 +342,14 @@ async def assist_stream(
 ) -> StreamingResponse:
     """Chat with the Terraflow Assistant with streaming progress updates."""
     await _validate_flow_access(request.flow_id, current_user.id, session)
+    confirmation = await _reuse_confirmation(request, current_user.id)
+    if confirmation is not None:
+        from terraflow.agentic.helpers.sse import format_complete_event
+
+        async def confirmed():
+            yield format_complete_event(confirmation)
+
+        return StreamingResponse(confirmed(), media_type="text/event-stream")
     ctx = await _resolve_assistant_context(request, current_user.id, session)
 
     return StreamingResponse(

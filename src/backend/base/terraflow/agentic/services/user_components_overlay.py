@@ -88,7 +88,13 @@ def load_registry_with_user_overlay(*, user_id: str | None) -> dict[str, dict]:
     # runtime from the live Terrabox catalog for the canvas sidebar. Without them
     # the assistant cannot find e.g. a threshold or water-area tool and writes a
     # replacement component instead, bypassing the tools' scientific checks.
-    base_registry = {**_terrabox_registry_entries(), **load_local_registry()}
+    from lfx.interface.earthflow_components import reusable_flow_template
+
+    base_registry = {
+        **_terrabox_registry_entries(),
+        **load_local_registry(),
+        "ReusableFlow": {**reusable_flow_template(), "category": "geo_workflow"},
+    }
 
     if user_id is None:
         return base_registry

@@ -6,12 +6,14 @@ from lfx.components._importing import import_mod
 
 if TYPE_CHECKING:
     from lfx.components.geo_workflow.raster_pair_gate import RasterPairGateComponent
+    from lfx.components.geo_workflow.reusable_flow import ReusableFlowComponent
     from lfx.components.geo_workflow.scene_input import SceneInputComponent
     from lfx.components.geo_workflow.tool_result_field import ToolResultFieldComponent
     from lfx.components.geo_workflow.water_input_set import WaterInputSetComponent
 
 _dynamic_imports = {
     "RasterPairGateComponent": "raster_pair_gate",
+    "ReusableFlowComponent": "reusable_flow",
     "SceneInputComponent": "scene_input",
     "ToolResultFieldComponent": "tool_result_field",
     "WaterInputSetComponent": "water_input_set",
@@ -19,6 +21,7 @@ _dynamic_imports = {
 
 __all__ = [
     "RasterPairGateComponent",
+    "ReusableFlowComponent",
     "SceneInputComponent",
     "ToolResultFieldComponent",
     "WaterInputSetComponent",

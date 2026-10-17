@@ -70,6 +70,7 @@ interface UseAssistantChatReturn {
       silent?: boolean;
       internal?: boolean;
       reuseAssistantMessageId?: string;
+      displayContent?: string;
     },
   ) => Promise<void>;
   handleApprove: (messageId: string, componentCode?: string) => Promise<void>;
@@ -214,6 +215,7 @@ export function useAssistantChat(): UseAssistantChatReturn {
         silent?: boolean;
         internal?: boolean;
         reuseAssistantMessageId?: string;
+        displayContent?: string;
       },
     ) => {
       // ``internal`` bypasses the processing guard so the skip-all bridge
@@ -273,7 +275,8 @@ export function useAssistantChat(): UseAssistantChatReturn {
       const userMessage: AssistantMessage = {
         id: uid.randomUUID(10),
         role: "user",
-        content,
+        content: options?.displayContent ?? content,
+        requestInput: options?.displayContent ? content : undefined,
         timestamp: new Date(),
         status: "complete",
       };
@@ -423,7 +426,10 @@ export function useAssistantChat(): UseAssistantChatReturn {
                 // context must not pile up onto the next handleSend.
                 dismissedPlanMarkdownRef.current = null;
                 setIsRefiningPlan(false);
-                if (skipAllRef.current) {
+                if (
+                  skipAllRef.current &&
+                  event.proposal_kind !== "reusable_flow"
+                ) {
                   // Skip-all bridge: queue the auto-approve. Clear the
                   // preamble the LLM streamed before the tool call so the
                   // chat reads as one continuous "Generating flow…" until
@@ -435,7 +441,18 @@ export function useAssistantChat(): UseAssistantChatReturn {
                 const markdown =
                   typeof event.markdown === "string" ? event.markdown : "";
                 updateMessage(assistantMessageId, () => ({
-                  pendingPlanProposal: { markdown },
+                  pendingPlanProposal: {
+                    markdown,
+                    model,
+                    approvalInput:
+                      typeof event.approval_input === "string"
+                        ? event.approval_input
+                        : undefined,
+                    dismissalInput:
+                      typeof event.dismissal_input === "string"
+                        ? event.dismissal_input
+                        : undefined,
+                  },
                   planProposalStatus: "pending" as const,
                 }));
                 return;
@@ -667,7 +684,13 @@ export function useAssistantChat(): UseAssistantChatReturn {
 
       // Remove the failed assistant message so a fresh one is created by handleSend
       setMessages((prev) => prev.filter((m) => m.id !== messageId));
-      handleSend(userMessage.content, lastModelRef.current);
+      handleSend(
+        userMessage.requestInput ?? userMessage.content,
+        lastModelRef.current,
+        {
+          displayContent: userMessage.content,
+        },
+      );
     },
     [messages, handleSend],
   );
@@ -814,9 +837,24 @@ export function useAssistantChat(): UseAssistantChatReturn {
       // skip-all auto-approve path reuses the SAME assistant message
       // slot (no second bubble) and skips the processing guard so the
       // bridge is invisible to the user.
-      if (!lastModelRef.current) return;
+      const proposal = messages.find(
+        (m) => m.id === messageId,
+      )?.pendingPlanProposal;
+      const model = lastModelRef.current ?? proposal?.model;
+      if (!model) return;
+      const approvalInput = proposal?.approvalInput;
+      if (approvalInput) {
+        if (isProcessing) return;
+        updateMessage(messageId, () => ({
+          planProposalStatus: "approved" as const,
+        }));
+        await handleSend(approvalInput, model, {
+          displayContent: "同意，保存为可复用流程。",
+        });
+        return;
+      }
       if (skipAllRef.current) {
-        await handleSend(SKIP_ALL_APPROVAL_TEXT, lastModelRef.current, {
+        await handleSend(SKIP_ALL_APPROVAL_TEXT, model, {
           silent: true,
           internal: true,
           reuseAssistantMessageId: messageId,
@@ -826,9 +864,9 @@ export function useAssistantChat(): UseAssistantChatReturn {
       updateMessage(messageId, () => ({
         planProposalStatus: "approved" as const,
       }));
-      await handleSend(SKIP_ALL_APPROVAL_TEXT, lastModelRef.current);
+      await handleSend(SKIP_ALL_APPROVAL_TEXT, model);
     },
-    [updateMessage, handleSend],
+    [updateMessage, handleSend, messages, isProcessing],
   );
   // Same trick as handleApplyFlowProposalRef — drained by onComplete.
   handleApprovePlanRef.current = handleApprovePlan;
@@ -840,25 +878,43 @@ export function useAssistantChat(): UseAssistantChatReturn {
     [updateMessage],
   );
 
-  const handleDismissPlan = useCallback((messageId: string) => {
-    // Dismiss transitions the card to "refining": the markdown stays on
-    // the message (card keeps rendering) and is stashed so the user's
-    // next handleSend re-injects it as prior-context for the agent.
-    // The user is in control — we do NOT auto-send anything here.
-    setMessages((prev) => {
-      const target = prev.find((m) => m.id === messageId);
-      const markdown = target?.pendingPlanProposal?.markdown ?? "";
-      if (markdown) {
-        dismissedPlanMarkdownRef.current = markdown;
+  const handleDismissPlan = useCallback(
+    async (messageId: string) => {
+      const proposal = messages.find(
+        (m) => m.id === messageId,
+      )?.pendingPlanProposal;
+      const model = lastModelRef.current ?? proposal?.model;
+      const dismissalInput = proposal?.dismissalInput;
+      if (dismissalInput) {
+        if (isProcessing || !model) return;
+        updateMessage(messageId, () => ({
+          planProposalStatus: "dismissed" as const,
+        }));
+        await handleSend(dismissalInput, model, {
+          displayContent: "暂不保存为可复用流程。",
+        });
+        return;
       }
-      return prev.map((m) =>
-        m.id === messageId
-          ? { ...m, planProposalStatus: "refining" as const }
-          : m,
-      );
-    });
-    setIsRefiningPlan(true);
-  }, []);
+      // Dismiss transitions the card to "refining": the markdown stays on
+      // the message (card keeps rendering) and is stashed so the user's
+      // next handleSend re-injects it as prior-context for the agent.
+      // The user is in control — we do NOT auto-send anything here.
+      setMessages((prev) => {
+        const target = prev.find((m) => m.id === messageId);
+        const markdown = target?.pendingPlanProposal?.markdown ?? "";
+        if (markdown) {
+          dismissedPlanMarkdownRef.current = markdown;
+        }
+        return prev.map((m) =>
+          m.id === messageId
+            ? { ...m, planProposalStatus: "refining" as const }
+            : m,
+        );
+      });
+      setIsRefiningPlan(true);
+    },
+    [messages, isProcessing, updateMessage, handleSend],
+  );
 
   const toggleSkipAll = useCallback(() => {
     setSkipAll((prev) => {

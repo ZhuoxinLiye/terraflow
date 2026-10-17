@@ -73,6 +73,11 @@ class TestOverlayEntryCaching:
     """
 
     def test_overlay_built_once_then_rebuilt_when_file_changes(self, isolated_sandbox: Path) -> None:  # noqa: ARG002
+        # Native templates have their own process cache; warm it before
+        # measuring only user-overlay file invalidation.
+        from lfx.interface.earthflow_components import reusable_flow_template
+
+        reusable_flow_template()
         real_build = lfx_utils.build_custom_component_template
 
         register_user_component(user_id="user-alice", class_name="SumComponent", code=SAMPLE_CODE)
@@ -270,8 +275,8 @@ class TestRegistryOverlay:
         # compile the node's real code and call a method that exists.
         import uuid
 
-        from terraflow.agentic.services.flow_run import run_working_flow
         from lfx.graph.flow_builder.builder import build_flow_from_spec
+        from terraflow.agentic.services.flow_run import run_working_flow
 
         code = (
             "from math import isqrt\n"
@@ -342,8 +347,8 @@ class TestRegistryOverlay:
         # result. The overlay must introspect the REAL template.
         import uuid
 
-        from terraflow.agentic.services.flow_run import run_working_flow
         from lfx.graph.flow_builder.builder import build_flow_from_spec
+        from terraflow.agentic.services.flow_run import run_working_flow
 
         code = (
             "from math import isqrt\n"

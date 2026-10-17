@@ -43,13 +43,84 @@ logger = logging.getLogger(__name__)
 
 # Cap so a runaway flow output can't blow the agent's context window or the
 # SSE payload (same rationale as the conversation/intent-context caps).
-MAX_RESULT_CHARS = 4000
+MAX_RESULT_CHARS = 16000
+COMPACT_MAX_DEPTH = 5
+COMPACT_MAX_STRING = 800
 
 # Hard ceiling on a single assistant-triggered run so a stuck flow can't
 # hang the SSE stream forever (AI-runtime resilience requirement).
 RUN_TIMEOUT_SECONDS = 120
 
 _NO_OUTPUT = "(no output)"
+
+
+def compact_value(value: Any, depth: int = 0) -> Any:
+    """Retain measurements and support; do not serialize a tool's own schema."""
+    if depth > COMPACT_MAX_DEPTH:
+        return "[details in node output]"
+    if isinstance(value, dict):
+        return {
+            k: compact_value(v, depth + 1)
+            for k, v in value.items()
+            if k not in {"vertex_results", "metadata", "tags", "bands", "histogram", "args_schema"}
+        }
+    if isinstance(value, list):
+        return [compact_value(v, depth + 1) for v in value[:12]]
+    if isinstance(value, str) and len(value) > COMPACT_MAX_STRING:
+        return value[:COMPACT_MAX_STRING] + " [details in node output]"
+    return value
+
+
+def structured_result_text(records: list[dict]) -> str | None:
+    """Summarize all data nodes, including later terminal area results.
+
+    Keep complete JSON, never a slice of a manifest from the first node.
+    Full raw data remains in the native result pool.
+    """
+    from terraflow.agentic.services.reusable_flows import node_outputs
+
+    rows = node_outputs(records)
+    if not rows:
+        return None
+    compact = [compact_value(row) for row in rows]
+    text = json.dumps(compact, ensure_ascii=False)
+    if len(text) <= MAX_RESULT_CHARS:
+        return text
+    important = {
+        "threshold",
+        "method",
+        "input_transform",
+        "direction",
+        "output_path",
+        "success",
+        "passed",
+        "reason_code",
+        "execution_blocked",
+        "water_area_m2",
+        "water_fraction",
+        "valid_area_m2",
+        "valid_pixels",
+        "water_pixels",
+        "common_valid_pixels",
+        "crs",
+        "area_method",
+        "limitations",
+        "flow_id",
+        "version",
+        "bindings",
+    }
+    reduced = [{**row, "outputs": {k: v for k, v in row["outputs"].items() if k in important}} for row in compact]
+    text = json.dumps({"node_results": reduced, "details": "Full data in native node outputs"}, ensure_ascii=False)
+    if len(text) <= MAX_RESULT_CHARS:
+        return text
+    return json.dumps(
+        {
+            "summary_incomplete": True,
+            "node_count": len(rows),
+            "reason": "Results exceed the assistant summary limit; do not infer missing measurements.",
+            "details": "Inspect full data in native node outputs.",
+        }
+    )
 
 
 def _get(obj: Any, key: str) -> Any:
@@ -331,7 +402,25 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
         metrics["total_tokens"],
     )
     vertex_results = extract_vertex_results(graph)
-    text = extract_run_result_text(run_outputs)
+    structured = structured_result_text(vertex_results)
+    # A chat flow may also produce Data artifacts. Preserve its user-facing
+    # answer while giving the assistant scientific measurements from all nodes.
+    chat_outputs = [
+        {
+            "outputs": [
+                {"messages": _get(rd, "messages")}
+                for rd in _get(ro, "outputs") or []
+                if rd is not None and _get(rd, "messages")
+            ]
+        }
+        for ro in run_outputs or []
+    ]
+    chat_text = extract_run_result_text(chat_outputs)
+    text = structured or extract_run_result_text(run_outputs)
+    if structured and chat_text != _NO_OUTPUT:
+        remaining = max(0, MAX_RESULT_CHARS - len(structured) - 20)
+        if remaining:
+            text = structured + "\nChat output:\n" + chat_text[:remaining]
     if text == _NO_OUTPUT:
         # The engine's run_outputs only includes chat/output components.
         # A geospatial tool can finish at a Data port with no ChatOutput;
