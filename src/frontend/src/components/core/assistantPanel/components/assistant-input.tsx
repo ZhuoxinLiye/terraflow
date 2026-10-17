@@ -219,7 +219,7 @@ export function AssistantInput({
   const showCharCount = message.length > MAX_MESSAGE_LENGTH * 0.8;
 
   return (
-    <div className="relative px-2 pb-2">
+    <div className="relative shrink-0 px-2 pb-2">
       {/* Glow effect below input — uses the assistant brand tokens so the glow
           color survives a theme swap and a brand re-skin in one place. */}
       <div

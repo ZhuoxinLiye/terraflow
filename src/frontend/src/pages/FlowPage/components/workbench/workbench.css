@@ -2,13 +2,41 @@
   min-width: 0;
 }
 .native-workbench .workbench-dock {
+  position: relative;
   display: flex;
-  flex: 0 0 328px;
-  width: 328px;
+  flex: 0 0 auto;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
   border-left: 1px solid hsl(var(--border));
   background: hsl(var(--background));
+}
+.native-workbench .workbench-dock-resize-handle {
+  position: absolute;
+  inset: 0 auto 0 -5px;
+  z-index: 50;
+  width: 10px;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.native-workbench .workbench-dock-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 24px);
+  left: 3px;
+  width: 3px;
+  height: 48px;
+  border-radius: 3px;
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+.native-workbench .workbench-dock-resize-handle:hover,
+.native-workbench .workbench-dock-resize-handle:focus-visible,
+.native-workbench
+  .workbench-dock[data-resizing="true"]
+  .workbench-dock-resize-handle {
+  outline: none;
+  background: hsl(var(--primary) / 0.15);
 }
 .native-workbench .workbench-dock[hidden],
 .native-workbench [hidden] {
@@ -23,12 +51,6 @@
 .native-workbench [data-sidebar="sidebar"] {
   font-size: 12px;
 }
-@media (max-width: 1199px) {
-  .native-workbench .workbench-dock {
-    flex-basis: 300px;
-    width: 300px;
-  }
-}
 @media (max-width: 767px) {
   .native-workbench .workbench-dock {
     position: absolute;
@@ -36,7 +58,6 @@
     top: 0;
     bottom: 0;
     z-index: 45;
-    width: min(328px, 88vw);
     box-shadow: -8px 0 24px #0000000a;
   }
 }

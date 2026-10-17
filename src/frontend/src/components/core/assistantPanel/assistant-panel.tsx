@@ -398,7 +398,7 @@ export function AssistantPanel({
       data-testid="assistant-panel"
       className={
         docked
-          ? "relative flex h-full min-h-0 w-full flex-col bg-background"
+          ? "relative flex h-full min-h-0 min-w-0 w-full flex-col bg-background"
           : containerClasses
       }
       style={docked ? undefined : containerStyle}
@@ -422,11 +422,14 @@ export function AssistantPanel({
           <AssistantNoModelsState />
         ) : hasMessages ? (
           <StickToBottom
-            className="flex flex-1 flex-col overflow-hidden"
+            className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
             resize="smooth"
             initial="instant"
           >
-            <StickToBottom.Content className="flex min-h-full flex-col justify-end px-4 pt-4 pb-0">
+            <StickToBottom.Content
+              scrollClassName="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+              className="flex min-h-full min-w-0 flex-col justify-end px-4 pt-4 pb-0"
+            >
               {messages.map((msg) => (
                 <AssistantMessageItem
                   key={msg.id}

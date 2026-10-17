@@ -196,7 +196,7 @@ export function AssistantMessageItem({
           {!isUser && message.buildTasks && message.buildTasks.length > 0 && (
             <AssistantBuildTasks tasks={message.buildTasks} />
           )}
-          <div className="mt-3 overflow-hidden">
+          <div className="mt-3 overflow-x-auto [overflow-wrap:anywhere]">
             <AssistantMessageBody
               message={message}
               isGeneratingCode={isGeneratingCode}
