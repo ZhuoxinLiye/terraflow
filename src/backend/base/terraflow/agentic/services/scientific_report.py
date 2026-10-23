@@ -259,8 +259,7 @@ def constrained_delivery(data: dict, run: dict, *, duration: float, usage: dict)
                 f"输入标度 {source.get('input_scale', '见产品说明')}；"
                 f"信号 {source.get('signal_definition', '见产品说明')} / {source.get('polarization', '见产品说明')}；"
                 f"item/fixture 许可 {source.get('license')}；"
-                f"collection 许可 {source.get('collection_license', '未提供')}。"
-                + " ".join(source["source_urls"])
+                f"collection 许可 {source.get('collection_license', '未提供')}。" + " ".join(source["source_urls"])
             )
             if source.get("description"):
                 lines.append("  " + source["description"])
@@ -324,3 +323,79 @@ def constrained_delivery(data: dict, run: dict, *, duration: float, usage: dict)
         ]
         text = "\n".join(lines)
     return {**data, "result": text, "raw_model_response": raw, "report_audit": audit, "report_evidence": evidence}
+
+
+def model_summary(evidence: dict, facts: dict) -> str:
+    """Keep all answer fields once; full aliases/profiles stay in native evidence."""
+    sources = []
+    seen = set()
+    for source in evidence["sources"]:
+        identity = (source.get("role"), source.get("sha256"))
+        if identity in seen:
+            continue
+        seen.add(identity)
+        sources.append(
+            {
+                k: source[k]
+                for k in (
+                    "role",
+                    "datetime",
+                    "source",
+                    "item_id",
+                    "input_scale",
+                    "signal_definition",
+                    "polarization",
+                    "source_urls",
+                    "description",
+                    "license",
+                    "collection_license",
+                    "checksum_matches",
+                )
+                if k in source
+            }
+        )
+    selected = {}
+    fields = {
+        "valid_pixels",
+        "excluded_pixels",
+        "valid_area_m2",
+        "support",
+        "before_water_area_m2",
+        "after_water_area_m2",
+        "new_water_area_m2",
+        "receded_water_area_m2",
+        "net_water_change_m2",
+        "total_new_water_area_m2",
+        "classes",
+        "predicted_water_area_m2",
+        "reference_water_area_m2",
+        "agreement_area_m2",
+        "predicted_only_area_m2",
+        "reference_only_area_m2",
+        "area_difference_m2",
+    }
+    for key in ("change", "classes", "reference"):
+        selected[key] = {k: v for k, v in facts[key].items() if k in fields}
+    c = facts["change"]
+    return json.dumps(
+        {
+            "sources": sources,
+            "measurements": selected,
+            "grid": {k: c[k] for k in ("crs", "grid_id", "transform", "shape", "pixel_area_m2", "area_method")},
+            "threshold": {
+                k: v
+                for k, v in facts["thresholds"][0].items()
+                if k in {"threshold", "method", "input_transform", "direction", "label_values"}
+            },
+            "raw_nodata": {role: facts["profiles"][role]["nodata"] for role in ("before", "after")},
+            "categorical_alignment": {
+                k: facts["alignment"].get(k) for k in ("resampling", "source_nodata", "output_nodata")
+            },
+            "reference_coverage_declaration": facts["rasterization"]["coverage_bbox_wgs84"],
+            "boundary": "Water estimates, not flood causation/damage. "
+            "Different-date reference: range differences only. "
+            "Class shares use class support, not the two-date denominator. Full raw evidence in native events.",
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )

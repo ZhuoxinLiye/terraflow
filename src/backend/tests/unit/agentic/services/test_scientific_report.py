@@ -4,7 +4,12 @@ import copy
 import hashlib
 import json
 
-from terraflow.agentic.services.scientific_report import constrained_delivery, input_evidence, report_facts
+from terraflow.agentic.services.scientific_report import (
+    constrained_delivery,
+    input_evidence,
+    model_summary,
+    report_facts,
+)
 
 
 def evidence():
@@ -153,3 +158,17 @@ def test_actual_used_stac_asset_is_hashed_and_unused_asset_is_not_reported(tmp_p
     assert input_evidence({}, [], []) == []
     path.write_bytes(b"changed")
     assert input_evidence({}, [], rows)[0]["checksum_matches"] is False
+
+
+def test_model_summary_keeps_sources_and_all_denominators_once_with_alias_deduplication():
+    data = evidence()
+    data["sources"].append({**data["sources"][0], "path": "/synthetic/alias.tif"})
+    facts, errors = report_facts(data)
+    assert not errors
+    summary = json.loads(model_summary(data, facts))
+    assert len(summary["sources"]) == 4
+    assert summary["measurements"]["classes"]["classes"][0]["new_water_fraction_of_class"] == 0.35
+    assert summary["measurements"]["classes"]["classes"][0]["water_area_m2"] == 400000
+    assert summary["sources"][0]["datetime"] == "2023-01-01T00:00:00Z"
+    assert summary["grid"]["crs"] == "EPSG:32634"
+    assert summary["raw_nodata"]["before"] == [-32768]

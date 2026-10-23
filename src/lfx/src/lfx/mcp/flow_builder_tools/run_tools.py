@@ -382,12 +382,19 @@ class RunFlow(Component):
         if proposal:
             text += "\n已提出保存为可复用流程的建议，等待用户确认；尚未发布。不要重新运行来保存。"
         if result.get("report_evidence"):
-            from terraflow.agentic.services.scientific_report import report_facts
+            from terraflow.agentic.services.scientific_report import model_summary, report_facts
 
             try:
                 facts, report_errors = report_facts(result["report_evidence"])
             except (KeyError, TypeError, ValueError):
                 facts, report_errors = {}, ["invalid_measurement_schema"]
+            if facts and not report_errors:
+                text = model_summary(result["report_evidence"], facts)
+                text += (
+                    "\nActual reuse action: proposal emitted, awaiting confirmation."
+                    if proposal
+                    else "\nActual reuse action: no save card, no saved/published reusable flow."
+                )
             if facts:
                 text += (
                     "\nDelivery: the server will render the full evidence-bound scientific report from these actual "
