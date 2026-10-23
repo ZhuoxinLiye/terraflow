@@ -172,9 +172,9 @@ async def _upload_bridged_file(file_name: str, content: bytes, user_id: str) -> 
     import io
 
     from fastapi import UploadFile
-
     from terraflow.api.v2.files import upload_user_file
     from terraflow.services.database.models.user.crud import get_user_by_id
+
     from lfx.services.deps import get_settings_service, get_storage_service, session_scope
 
     async with session_scope() as db:
@@ -293,7 +293,7 @@ def _schema_type(schema: dict[str, Any]) -> str:
 
 def _component_input_aliases(field_names: list[str]) -> dict[str, str]:
     aliases: dict[str, str] = {}
-    used = {"base_url", "api_key", "timeout"}
+    used = {"base_url", "api_key", "timeout", "preconditions"}
     for field_name in field_names:
         candidate = field_name
         if (
@@ -383,6 +383,25 @@ def _required_fields(parameters: dict[str, Any]) -> set[str]:
     return set(required) if isinstance(required, list) else set()
 
 
+def scientific_precondition_error(value: Any) -> str | None:
+    """Validate a connected scientific dependency, independently of HTTP success."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        if not value:
+            return "upstream_precondition_unavailable"
+        return next((error for item in value if (error := scientific_precondition_error(item))), None)
+    payload = value.data if hasattr(value, "data") else value
+    if not isinstance(payload, dict) or not payload or payload.get("success") is False:
+        return "upstream_precondition_failed"
+    outputs = payload.get("outputs", payload)
+    if not isinstance(outputs, dict) or outputs.get("execution_blocked") is True or outputs.get("success") is False:
+        return (outputs.get("reason_code") if isinstance(outputs, dict) else None) or "upstream_precondition_failed"
+    if outputs.get("passed") is True or (outputs.get("success") is True and outputs.get("execution_blocked") is False):
+        return None
+    return "upstream_precondition_unavailable"
+
+
 def build_terrabox_component_source(spec: TerraboxToolSpec) -> str:
     class_name = component_class_name(spec.slug)
     tool_name = langchain_tool_name(spec.slug)
@@ -398,6 +417,8 @@ def build_terrabox_component_source(spec: TerraboxToolSpec) -> str:
         "info='API key used as X-API-Key when calling Terrabox.', required=False, advanced=True)",
         "IntInput(name='timeout', display_name='Timeout', info='Terrabox request timeout in seconds.', "
         "value=60, advanced=True)",
+        "DataInput(name='preconditions', display_name='Scientific Preconditions', required=False, advanced=True, "
+        "info='Connect an upstream preflight/evidence result. A failed or unavailable result blocks this call.')",
     ]
     input_calls.extend(
         _input_call(
@@ -422,6 +443,7 @@ from lfx.base.langchain_utilities.model import LCToolComponent
 from lfx.field_typing import Tool
 from lfx.inputs.inputs import (
     BoolInput,
+    DataInput,
     DictInput,
     DropdownInput,
     FloatInput,
@@ -431,7 +453,7 @@ from lfx.inputs.inputs import (
     SecretStrInput,
     StrInput,
 )
-from lfx.interface.earthflow_terrabox import bridge_generated_files
+from lfx.interface.earthflow_terrabox import bridge_generated_files, scientific_precondition_error
 from lfx.schema.data import Data
 
 logger = logging.getLogger(__name__)
@@ -528,6 +550,11 @@ class {class_name}(LCToolComponent):
         ).rstrip("/")
 
     def _execute(self, inputs: dict[str, Any]) -> dict[str, Any]:
+        gate_error = scientific_precondition_error(getattr(self, "preconditions", None))
+        if gate_error:
+            return {{"success": False, "error": f"Scientific prerequisite refused: {{gate_error}}",
+                    "outputs": {{"success": False, "execution_blocked": True, "reason_code": gate_error}},
+                    "tool": self._TERRABOX_SLUG}}
         api_key = self._api_key_value()
         if not api_key:
             return {{
@@ -646,7 +673,7 @@ def build_terrabox_components_by_category(tool_specs: list[TerraboxToolSpec]) ->
     for spec in tool_specs:
         try:
             template = build_terrabox_component_template(spec)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Failed to build Terrabox component template for %s", spec.slug)
             continue
         category = terrabox_toolkit_category(spec.slug)
@@ -735,7 +762,7 @@ def load_terrabox_tool_specs(
         )
         response.raise_for_status()
         toolkits = response.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.exception("Failed to fetch Terrabox toolkits from %s", resolved_base_url)
         return []
 

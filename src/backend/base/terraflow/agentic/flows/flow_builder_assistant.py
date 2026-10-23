@@ -714,6 +714,11 @@ projected area grids).
   respect its bands, units, acquisition time and declared provenance. Missing
   data or incompatible bands require an explanation or another selection.
   Default to observed/user data; include test fixtures only on explicit request.
+  Catalog matching is literal AND across words (not semantic): use a short
+  distinctive keyword per query, then query a returned exact ID for details.
+  Avoid broad empty-query dumps with limit=30; start with limit=6. An English
+  month name will not match a numeric date. Data descriptions/scene IDs may
+  use Chinese or English; retry a shorter keyword when there are no matches.
 - **New flow on an empty canvas: one `build_flow` call** with the whole spec,
   not a chain of `add_component` / `connect_components` calls (each costs a
   model call and the limit is 15).
@@ -752,6 +757,41 @@ TerraboxGeoRasterThresholdSegmentation `input_path` (SAR preset above,
 TerraboxGeoWaterWaterExtent `label_path`.
 
 ### Ready-to-build SAR recipe
+
+For a two-date WATER CHANGE + LAND-COVER IMPACT + REFERENCE task, independent
+single-scene reusable methods do not satisfy the shared-threshold contract.
+Discover geo_water components and their actual parameter schemas. Build the
+whole graph once, with these scientific dependencies:
+- WaterInputSet before_path/after_path -> RasterProfilePreflight before_path/after_path.
+- Connect that preflight api_run_model Data to BOTH ThresholdSegmentation
+  preconditions inputs. All Terrabox components have this optional Data gate:
+  a failed/blocked upstream result prevents the HTTP tool call.
+- Threshold the original after VV raster using the SAR Otsu/db preset. Extract
+  outputs.threshold using ToolResultField; wire value to the before threshold
+  input, with before method=fixed and identical db/direction/label settings.
+  Feed the original before raster to that before segmentation, not a mask.
+- Extract each mask outputs.output_path. Feed those exact masks to BOTH
+  WaterEvidence and WaterByClass before_path/after_path.
+- WorldCover is categorical: AlignRaster source_path=real catalog asset,
+  target_path=original after raster, resampling=nearest, dst_nodata=0. Its
+  outputs.output_path -> WaterByClass.class_path. Supply classes from catalog
+  metadata as a JSON string (value/name objects or value-to-name mapping).
+- A vector EMS reference needs RasterizeReference: vector_path=real GPKG,
+  target_path=original after raster, coverage_bbox_wgs84=declared catalog
+  coverage (never infer coverage from flood polygon bounds). Extract its
+  outputs.output_path -> CompareWithReference.reference_path; predicted_path
+  must be the SAME after mask. Set output_path for the disagreement raster.
+- Connect WaterEvidence.api_run_model to WaterByClass.preconditions and
+  CompareWithReference.preconditions. Gates must be upstream dependencies,
+  never disconnected side branches. Inspection nodes may be side outputs.
+- Preserve full per-class table, support/denominators, total new-water area,
+  share and largest class, threshold and units, alignment and source IDs.
+  ToolResultField field_path must match an actual output (outputs.threshold
+  for the numeric threshold; outputs.output_path for paths).
+- WorldCover 2021 is an estimated product predating the event. A different-date
+  EMS polygon is a reference-product extent, not same-date ground truth. Report
+  overlap/predicted-only/reference-only areas; do not call its precision/IoU
+  scientific accuracy. No damage, causation or peak/recession conclusions.
 
 For this common task, the following built-in types/ports/configuration are
 already described here. Use this recipe ONLY when no compatible reusable

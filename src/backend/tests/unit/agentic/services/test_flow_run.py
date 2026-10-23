@@ -290,3 +290,38 @@ class TestRunWorkingFlowSecurityGate:
 
         bg.assert_awaited_once()  # no false positive — safe code still runs
         assert "error" not in out
+
+
+def test_large_native_summary_preserves_classification_and_reference_measurements():
+    from terraflow.agentic.services.flow_run import structured_result_text
+
+    rows = [
+        {"node_id": "inspect", "outputs": {f"extra_{i}": "x" * 700 for i in range(30)}},
+        {
+            "node_id": "classes",
+            "outputs": {
+                "total_new_water_area_m2": 200,
+                "classes": [{"value": 40, "new_water_area_m2": 200, "share_of_new_water": 1}],
+                "max_new_water_class": {"value": 40},
+                "source_ids": {"after": "/synthetic/after.tif"},
+            },
+        },
+        {
+            "node_id": "reference",
+            "outputs": {
+                "agreement_area_m2": 100,
+                "predicted_only_area_m2": 100,
+                "reference_only_area_m2": 300,
+                "area_difference_m2": -200,
+            },
+        },
+    ]
+    with patch("terraflow.agentic.services.reusable_flows.node_outputs", return_value=rows):
+        text = structured_result_text([])
+    import json
+
+    summary = json.loads(text)
+    result = summary["node_results"][1]["outputs"]
+    assert result["total_new_water_area_m2"] == 200
+    assert result["classes"][0]["share_of_new_water"] == 1
+    assert summary["node_results"][2]["outputs"]["area_difference_m2"] == -200

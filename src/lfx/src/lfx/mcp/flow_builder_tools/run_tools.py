@@ -168,6 +168,17 @@ class BuildFlowFromSpec(Component):
             working.clear()
             working.update(result["flow"])
             _emit("set_flow", flow=result["flow"])
+            # Canonical templates contain source code and UI schemas repeated
+            # for every node. Keep the full graph in state/events, not in the
+            # model's tool response (large scientific flows can exceed 80k tokens).
+            result = {
+                **{key: value for key, value in result.items() if key != "flow"},
+                "nodes": [
+                    {"id": node["id"], "type": node.get("data", {}).get("type")}
+                    for node in result["flow"].get("data", {}).get("nodes", [])
+                ],
+                "flow_state": "Full graph stored on the current canvas; run_flow executes that graph.",
+            }
         return Data(data=result)
 
 
@@ -364,7 +375,10 @@ class RunFlow(Component):
         # for the agent to be able to report time/tokens; `metrics` is kept
         # structured for any programmatic use.
         text_with_metrics = f"{text}\n\n{summary}" if summary else text
-        return Data(data={"text": text_with_metrics, "result": text, "metrics": metrics})
+        # This Data is the agent-facing tool reply. Repeating the same large
+        # scientific summary in both `text` and `result` doubles context use.
+        # The execution service and native vertex events retain full results.
+        return Data(data={"text": text_with_metrics, "metrics": metrics})
 
 
 class GenerateComponent(Component):

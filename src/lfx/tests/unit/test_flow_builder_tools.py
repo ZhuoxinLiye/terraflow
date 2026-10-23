@@ -222,7 +222,8 @@ class TestBuildFlowFromSpec:
         comp.set(spec="name: Test\nnodes:\n  A: ChatInput\n  B: ChatOutput\nedges:\n  A.message -> B.input_value")
         result = comp.build_flow()
         assert "built successfully" in result.data["text"]
-        assert "flow" in result.data
+        assert "nodes" in result.data
+        assert "flow" not in result.data  # full templates remain in state/events
 
     def test_build_mutates_working_flow_in_place_not_rebind(self):
         # Production bug: build_flow did `_working_flow_var.set(new_dict)`
@@ -258,7 +259,7 @@ class TestBuildFlowFromSpec:
 
         assert "error" not in result.data, result.data
         assert "built successfully" in result.data["text"], result.data
-        assert "flow" in result.data
+        assert "nodes" in result.data
 
     def test_multi_node_spec_with_no_edges_still_rejected_as_orphan(self):
         # The guard must still catch a genuine mistake: 2+ nodes, no wiring.

@@ -40,7 +40,7 @@ class TestRunFlowTool:
         # The LLM reads `text`; it must carry the run result so the agent can
         # answer questions about it.
         assert data.data["text"] == "woof"
-        assert data.data["result"] == "woof"
+        assert "result" not in data.data  # avoid duplicating measurements in model context
 
     def test_exposes_run_metrics_to_the_agent(self):
         init_working_flow(
@@ -194,7 +194,7 @@ class TestRunFlowInjectsVerifiedModel:
         assert model_value
         assert model_value[0]["name"] == "gpt-4o"
         assert model_value[0]["provider"] == "OpenAI"
-        assert data.data["result"] == "42 is prime"
+        assert data.data["text"] == "42 is prime"
 
     def test_runs_normally_when_no_verified_model_is_bound(self):
         # No agent_run_context set -> no injection, but the run still works
@@ -204,7 +204,7 @@ class TestRunFlowInjectsVerifiedModel:
             data = _run(RunFlow())
 
         m.assert_awaited_once()
-        assert data.data["result"] == "ok"
+        assert data.data["text"] == "ok"
 
 
 class TestRunFlowEnforcesRequestedModel:
@@ -302,3 +302,13 @@ class TestRunFlowEnforcesRequestedModel:
         flow_data = m.await_args.kwargs["flow_data"]
         model_value = flow_data["data"]["nodes"][0]["data"]["node"]["template"]["model"]["value"]
         assert model_value[0]["name"] == "gpt-5.5"
+
+
+def test_large_measurement_summary_is_returned_once_to_model():
+    init_working_flow({"name": "F", "data": {"nodes": [{"id": "Tool-1"}], "edges": []}}, "flow-1")
+    measurement = "synthetic-measurement-" * 200
+    with patch(RWF, new_callable=AsyncMock, return_value={"result": measurement}):
+        result = _run(RunFlow()).data
+    import json
+
+    assert json.dumps(result).count(measurement) == 1

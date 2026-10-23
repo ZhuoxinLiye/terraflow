@@ -108,6 +108,29 @@ def structured_result_text(records: list[dict]) -> str | None:
         "flow_id",
         "version",
         "bindings",
+        "support",
+        "grid_id",
+        "transform",
+        "shape",
+        "source_ids",
+        "new_water_area_m2",
+        "total_new_water_area_m2",
+        "max_new_water_class",
+        "classes",
+        "excluded_pixels",
+        "pixel_area_m2",
+        "before",
+        "after",
+        "change",
+        "stats",
+        "agreement_area_m2",
+        "predicted_only_area_m2",
+        "reference_only_area_m2",
+        "predicted_water_area_m2",
+        "reference_water_area_m2",
+        "area_difference_m2",
+        "resampling",
+        "coverage_bbox_wgs84",
     }
     reduced = [{**row, "outputs": {k: v for k, v in row["outputs"].items() if k in important}} for row in compact]
     text = json.dumps({"node_results": reduced, "details": "Full data in native node outputs"}, ensure_ascii=False)
@@ -338,6 +361,12 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
     """
     payload = flow_data.get("data") or {}
     flow_name = flow_data.get("name") or "Assistant Flow"
+
+    from terraflow.agentic.services.geo_wiring import geo_wiring_errors
+
+    wiring = geo_wiring_errors(flow_data)
+    if wiring:
+        return {"error": "Geo wiring error: " + " ".join(wiring)}
 
     # Security gate: never exec component code that fails the scan, even
     # if it reached the run path without going through generation.
