@@ -535,7 +535,16 @@ def _reconcile_flow_updates(
         set_flow_applied = True
 
     events.extend(
-        {"action": "run_result", "flow_id": update.get("flow_id"), "vertex_results": update["vertex_results"]}
+        {
+            "action": "run_result",
+            "flow_id": update.get("flow_id"),
+            "vertex_results": update["vertex_results"],
+            **(
+                {key: update.get(key) for key in ("report_evidence", "metrics", "reuse_proposal")}
+                if update.get("report_evidence")
+                else {}
+            ),
+        }
         for update in updates
         if update.get("action") == "flow_ran" and update.get("vertex_results")
     )
@@ -577,6 +586,8 @@ async def execute_flow_with_validation_streaming(
     # injects the running total into every emitted ``complete`` event so the user
     # sees the actual cost even on partial / fallback outcomes.
     request_started_at = perf_counter()
+    scientific_runs: list[dict] = []
+    final_response_text = ""
     total_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
     def _accumulate(tokens: dict[str, int] | None, *, phase: str | None = None) -> None:
@@ -607,6 +618,14 @@ async def execute_flow_with_validation_streaming(
                 )
 
     def _complete(data: dict) -> str:
+        nonlocal final_response_text
+        if scientific_runs:
+            from terraflow.agentic.services.scientific_report import constrained_delivery
+
+            data = constrained_delivery(
+                data, scientific_runs[-1], duration=perf_counter() - request_started_at, usage=total_usage
+            )
+            final_response_text = data.get("result") or final_response_text
         payload = {
             **data,
             "usage": dict(total_usage),
@@ -950,6 +969,8 @@ async def execute_flow_with_validation_streaming(
                                 if events_to_emit:
                                     has_flow_updates = True
                                 for emitted in events_to_emit:
+                                    if emitted.get("action") == "run_result" and emitted.get("report_evidence"):
+                                        scientific_runs.append(emitted)
                                     yield format_flow_update_event(emitted)
                                 # Drain file_written events the same way — each one
                                 # becomes a card on the frontend message.
@@ -1108,6 +1129,8 @@ async def execute_flow_with_validation_streaming(
             if events_to_emit:
                 has_flow_updates = True
             for emitted in events_to_emit:
+                if emitted.get("action") == "run_result" and emitted.get("report_evidence"):
+                    scientific_runs.append(emitted)
                 yield format_flow_update_event(emitted)
             # Drain any remaining file_written events emitted after the last token.
             for file_event in drain_file_events():

@@ -71,7 +71,7 @@ def compact_value(value: Any, depth: int = 0) -> Any:
     return value
 
 
-def structured_result_text(records: list[dict]) -> str | None:
+def structured_result_text(records: list[dict], max_chars: int = MAX_RESULT_CHARS) -> str | None:
     """Summarize all data nodes, including later terminal area results.
 
     Keep complete JSON, never a slice of a manifest from the first node.
@@ -84,7 +84,7 @@ def structured_result_text(records: list[dict]) -> str | None:
         return None
     compact = [compact_value(row) for row in rows]
     text = json.dumps(compact, ensure_ascii=False)
-    if len(text) <= MAX_RESULT_CHARS:
+    if len(text) <= max_chars:
         return text
     important = {
         "threshold",
@@ -131,10 +131,28 @@ def structured_result_text(records: list[dict]) -> str | None:
         "area_difference_m2",
         "resampling",
         "coverage_bbox_wgs84",
+        "before_water_area_m2",
+        "after_water_area_m2",
+        "receded_water_area_m2",
+        "net_water_change_m2",
+        "label_values",
+        "class_answerable",
+        "change_answerable",
+        "comparison_answerable",
     }
     reduced = [{**row, "outputs": {k: v for k, v in row["outputs"].items() if k in important}} for row in compact]
+    # Profile details are already retained in native events. Keep each
+    # threshold once, and every class/area denominator, within a local context.
+    for row in reduced:
+        out = row["outputs"]
+        out.pop("max_new_water_class", None)  # derivable from the complete class table
+        out.pop("limitations", None)  # claim boundary is carried with input evidence/report
+        if "common_valid_pixels" in out:
+            for role in ("before", "after"):
+                if isinstance(out.get(role), dict):
+                    out[role] = {k: v for k, v in out[role].items() if k in {"nodata", "crs", "shape"}}
     text = json.dumps({"node_results": reduced, "details": "Full data in native node outputs"}, ensure_ascii=False)
-    if len(text) <= MAX_RESULT_CHARS:
+    if len(text) <= max_chars:
         return text
     return json.dumps(
         {
@@ -421,6 +439,7 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
     # vertices, which is why production showed "0,0s"). Token usage is read
     # off the graph's LLM/Agent vertices.
     metrics = {
+        "scope": "scientific_flow_only",
         "duration_seconds": round(perf_counter() - started, 3),
         **extract_graph_token_usage(graph),
     }
@@ -431,7 +450,26 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
         metrics["total_tokens"],
     )
     vertex_results = extract_vertex_results(graph)
-    structured = structured_result_text(vertex_results)
+    from terraflow.agentic.services.reusable_flows import node_outputs
+    from terraflow.agentic.services.scientific_report import input_evidence
+
+    rows = node_outputs(vertex_results)
+    sources = input_evidence(flow_data, vertex_results, rows)
+    report_evidence = {"node_results": rows, "sources": sources}
+    model_sources = [
+        {
+            k: v
+            for k, v in source.items()
+            if k not in {"class_table", "sha256", "declared_checksum", "metadata_file", "evidence_depth"}
+        }
+        for source in sources
+    ]
+    source_text = json.dumps(model_sources, ensure_ascii=False)
+    structured = structured_result_text(vertex_results, max_chars=max(4000, MAX_RESULT_CHARS - len(source_text) - 100))
+    if structured and sources:
+        structured = json.dumps(
+            {"input_evidence": model_sources, "execution": json.loads(structured)}, ensure_ascii=False
+        )
     # A chat flow may also produce Data artifacts. Preserve its user-facing
     # answer while giving the assistant scientific measurements from all nodes.
     chat_outputs = [
@@ -470,4 +508,5 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
         "result": text,
         "metrics": metrics,
         "vertex_results": vertex_results,
+        "report_evidence": report_evidence,
     }

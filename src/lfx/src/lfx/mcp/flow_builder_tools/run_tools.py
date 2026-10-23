@@ -219,7 +219,10 @@ def _format_run_metrics(metrics: dict) -> str:
     if not metrics:
         return ""
     duration = metrics.get("duration_seconds") or 0
-    parts = [f"Ran in {duration:g}s"]
+    scope = "Scientific flow wall time" if metrics.get("scope") == "scientific_flow_only" else "Ran in"
+    parts = [f"{scope} {duration:g}s"]
+    if metrics.get("scope") == "scientific_flow_only":
+        parts.append("excludes assistant planning/model/report time; not the total Agent request")
     total = metrics.get("total_tokens") or 0
     if total:
         in_tok = metrics.get("input_tokens") or 0
@@ -346,7 +349,6 @@ class RunFlow(Component):
         # flow to the canvas (running a flow the user can't see is
         # contradictory) instead of guessing intent from the prompt wording.
         # Emitted only on success — a failed run must never claim it ran.
-        _emit("flow_ran", flow_id=flow_id, vertex_results=result.get("vertex_results", []))
         from terraflow.agentic.services.reusable_flows import APPROVE, DISMISS, propose_after_run
 
         proposal = None
@@ -364,11 +366,35 @@ class RunFlow(Component):
                 dismissal_input=DISMISS + proposal["flow_id"],
                 proposal_kind="reusable_flow",
             )
+        _emit(
+            "flow_ran",
+            flow_id=flow_id,
+            vertex_results=result.get("vertex_results", []),
+            report_evidence=result.get("report_evidence"),
+            metrics=result.get("metrics", {}),
+            reuse_proposal=bool(proposal),
+        )
         text = result.get("result", "")
         if proposal_error:
             text += "\n\n" + proposal_error
+        if not proposal and result.get("report_evidence"):
+            text += "\n实际动作：没有生成复用保存卡；未保存或发布可复用流程。"
         if proposal:
             text += "\n已提出保存为可复用流程的建议，等待用户确认；尚未发布。不要重新运行来保存。"
+        if result.get("report_evidence"):
+            from terraflow.agentic.services.scientific_report import report_facts
+
+            try:
+                facts, report_errors = report_facts(result["report_evidence"])
+            except (KeyError, TypeError, ValueError):
+                facts, report_errors = {}, ["invalid_measurement_schema"]
+            if facts:
+                text += (
+                    "\nDelivery: the server will render the full evidence-bound scientific report from these actual "
+                    "results, sources, denominators, actions and request timing. Reply with one brief completion "
+                    "sentence; do not repeat tables or invent additional actions. Original model prose is retained. "
+                    f"Report precheck errors: {report_errors}."
+                )
         metrics = result.get("metrics") or {}
         summary = _format_run_metrics(metrics)
         # The LLM only reads `text`, so the performance summary must be inline

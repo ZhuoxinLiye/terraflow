@@ -17,6 +17,7 @@ cases (build-only, compound, run-only, incremental) are pinned too.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -112,6 +113,29 @@ class TestBuildAndRunAlwaysApplies:
         )
         assert _has_auto_applied_set_flow(events), f"late run must re-apply the proposed flow to the canvas. {events}"
         assert not _has_proposal_gate(events)
+
+    @pytest.mark.asyncio
+    async def test_executed_evidence_reaches_final_delivery_for_live_and_trailing_batches(self):
+        run = {
+            **FLOW_RAN,
+            "vertex_results": [{"id": "synthetic"}],
+            "report_evidence": {"synthetic": True},
+            "metrics": {"duration_seconds": 1},
+            "reuse_proposal": False,
+        }
+        for batches in ([[dict(SET_FLOW), run], [], []], [[dict(SET_FLOW)], [run], []]):
+            with patch(
+                "terraflow.agentic.services.scientific_report.constrained_delivery",
+                return_value={"result": "evidence-bound", "raw_model_response": "raw"},
+            ) as render:
+                events = await _run_generator(
+                    input_value="build and run", intent="build_flow", drain_batches=batches, stream=_one_token_stream
+                )
+            render.assert_called_once()
+            assert render.call_args.args[1]["report_evidence"] == {"synthetic": True}
+            complete = [json.loads(e[5:])["data"] for e in events if '"event": "complete"' in e][0]
+            assert complete["result"] == "evidence-bound"
+            assert complete["raw_model_response"] == "raw"
 
     @pytest.mark.asyncio
     async def test_decision_is_wording_agnostic_even_when_run_regex_misses(self):
