@@ -40,7 +40,7 @@ from urllib.request import Request, urlopen
 
 DEFAULT_TERRABOX_URL = "http://127.0.0.1:8010"
 DEFAULT_TERRAFLOW_URL = "http://127.0.0.1:7861"
-DEFAULT_LLM_URL = "http://127.0.0.1:8089"
+DEFAULT_LLM_URL = os.environ.get("LLM_BASE_URL", "http://127.0.0.1:8089")
 DEFAULT_RUNTIME_DIR = "/data2/liyezhuoxin/terrabox-water-demo/runtime"
 DEFAULT_FIXTURE_DIR = f"{DEFAULT_RUNTIME_DIR}/demo-fixtures"
 DEFAULT_SUMMARY_DIR = f"{DEFAULT_RUNTIME_DIR}/demo-runs"

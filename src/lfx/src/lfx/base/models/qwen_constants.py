@@ -11,6 +11,8 @@ China generally need to override the base URL; that is why the API Base is
 surfaced as a configurable provider variable rather than hardcoded.
 """
 
+import os
+
 from lfx.base.models.model_metadata import create_model_metadata
 
 QWEN_MODELS_DETAILED = [
@@ -27,6 +29,13 @@ QWEN_MODELS_DETAILED = [
         provider="Qwen", name="qwen3.6-max-preview", icon="OpenAI", tool_calling=True, preview=True
     ),
 ]
+
+# A local deployment advertises its served alias to the assistant and model
+# selector. Without this, they continue sending the cloud catalog's model IDs.
+if local_model := os.environ.get("TERRAFLOW_QWEN_LOCAL_MODEL", "").strip():
+    QWEN_MODELS_DETAILED.insert(
+        0, create_model_metadata(provider="Qwen", name=local_model, icon="OpenAI", tool_calling=True, default=True)
+    )
 
 QWEN_EMBEDDING_MODELS_DETAILED = [
     create_model_metadata(

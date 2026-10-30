@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from lfx.base.models.model_utils import _to_str
 from lfx.services.variable.request_scope import is_env_fallback_disabled
@@ -324,6 +325,10 @@ def get_llm(
     if provider == "Qwen":
         qwen_extra = _qwen_thinking_options()
         if qwen_extra:
+            # llama.cpp reads this switch from template kwargs; DashScope reads
+            # the top-level field. Preserve intent-classifier overrides locally.
+            if urlsplit(str(kwargs.get("base_url", ""))).hostname in {"127.0.0.1", "localhost", "::1"}:
+                qwen_extra["chat_template_kwargs"] = {"enable_thinking": qwen_extra["enable_thinking"]}
             kwargs["extra_body"] = {**(kwargs.get("extra_body") or {}), **qwen_extra}
 
     try:
