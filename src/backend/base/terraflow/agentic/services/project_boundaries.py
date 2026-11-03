@@ -186,6 +186,24 @@ def budget_tools(tools: list) -> list:
                         budget.last_run_error = str(exc) or type(exc).__name__
                     raise
 
+            def run(self, tool_input: Any, *args, **kwargs):
+                budget.consume(original.name)
+                try:
+                    return record(original.run(tool_input, *args, **kwargs))
+                except Exception as exc:
+                    if original.name == "run_flow":
+                        budget.last_run_error = str(exc) or type(exc).__name__
+                    raise
+
+            async def arun(self, tool_input: Any, *args, **kwargs):
+                budget.consume(original.name)
+                try:
+                    return record(await original.arun(tool_input, *args, **kwargs))
+                except Exception as exc:
+                    if original.name == "run_flow":
+                        budget.last_run_error = str(exc) or type(exc).__name__
+                    raise
+
         return RequestBudgetTool(name=original.name, description=original.description,
                                  args_schema=original.get_input_schema(),
                                  return_direct=original.return_direct, response_format=original.response_format,

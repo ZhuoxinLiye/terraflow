@@ -163,3 +163,49 @@ async def test_wrapper_preserves_handled_tool_error_status_and_injected_call_id(
         assert budget.used == 3
     finally:
         request_tool_budget.reset(token)
+
+
+async def test_actual_classic_agent_executor_runs_wrapped_sync_and_async_tools(monkeypatch):
+    from typing import Any
+    from langchain_classic.agents import AgentExecutor
+    from langchain_classic.agents.agent import BaseSingleActionAgent
+    from langchain_core.agents import AgentAction, AgentFinish
+    from langchain_core.tools import StructuredTool
+    from terraflow.agentic.services.project_boundaries import ProjectToolBudgetExceeded, ToolBudget, bound_budget_tools, request_tool_budget
+
+    executed = []
+
+    def lookup(value: str) -> str:
+        """Synthetic actual executor tool."""
+        executed.append(value)
+        return "found:" + value
+
+    class ScriptedAgent(BaseSingleActionAgent):
+        @property
+        def input_keys(self) -> list[str]:
+            return ["input"]
+
+        def plan(self, intermediate_steps, callbacks=None, **kwargs: Any):
+            if intermediate_steps:
+                return AgentFinish({"output": intermediate_steps[-1][1]}, "synthetic complete")
+            return AgentAction("lookup", {"value": kwargs["input"]}, "synthetic action")
+
+        async def aplan(self, intermediate_steps, callbacks=None, **kwargs: Any):
+            return self.plan(intermediate_steps, callbacks=callbacks, **kwargs)
+
+    monkeypatch.setenv("TERRAFLOW_ASSISTANT_PROFILE", "geo")
+    budget = ToolBudget(limit=4)
+    token = request_tool_budget.set(budget)
+    try:
+        wrapped = bound_budget_tools([StructuredTool.from_function(lookup)])[0]
+        executor = AgentExecutor(agent=ScriptedAgent(), tools=[wrapped], max_iterations=2)
+        assert (await executor.ainvoke({"input": "async"}))["output"] == "found:async"
+        assert executor.invoke({"input": "sync"})["output"] == "found:sync"
+        assert await wrapped.arun({"value": "direct_async"}) == "found:direct_async"
+        assert wrapped.run({"value": "direct_sync"}) == "found:direct_sync"
+        assert budget.used == 4 and executed == ["async", "sync", "direct_async", "direct_sync"]
+        with pytest.raises(ProjectToolBudgetExceeded):
+            await executor.ainvoke({"input": "must_not_start"})
+        assert len(executed) == 4
+    finally:
+        request_tool_budget.reset(token)
