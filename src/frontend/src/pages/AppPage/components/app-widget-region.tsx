@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
 import ForwardedIconComponent from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -46,6 +47,7 @@ export function AppWidgetRegion({
   onShowChat,
 }: AppWidgetRegionProps): JSX.Element {
   const { t } = useTranslation();
+  const navigate = useCustomNavigate();
   const nodes = useFlowStore((state) => state.nodes);
   const flowPool = useFlowStore((state) => state.flowPool);
   const currentFlowId = useFlowsManagerStore((state) => state.currentFlowId);
@@ -163,7 +165,20 @@ export function AppWidgetRegion({
     >
       {/* Toolbar. The chat panel owns its own close control, so this is the
           only way back once it has been dismissed. */}
-      <div className="flex h-12 shrink-0 items-center justify-end px-4">
+      <div className="flex h-12 shrink-0 items-center gap-3 px-4">
+        <span className="text-sm font-medium">{t("app.viewToggle.app")}</span>
+        <span className="mr-auto hidden text-xs text-muted-foreground lg:block">
+          {t("app.widgets.reviewHint")}
+        </span>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate(`/flow/${currentFlowId}?resource=traces`)}
+          data-testid="app_run_history_button"
+        >
+          <ForwardedIconComponent name="History" className="h-4 w-4" />
+          {t("app.widgets.runHistory")}
+        </Button>
         {!isChatOpen && (
           <Button
             variant="outline"
@@ -176,6 +191,13 @@ export function AppWidgetRegion({
           </Button>
         )}
       </div>
+
+      <p
+        className="shrink-0 px-4 pb-2 text-xs text-muted-foreground"
+        data-testid="app_history_hint"
+      >
+        {t("app.widgets.historyHint")}
+      </p>
 
       {layout.length === 0 ? (
         <div className="flex flex-1 items-center justify-center p-8">

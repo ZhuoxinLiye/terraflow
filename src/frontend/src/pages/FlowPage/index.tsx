@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useBlocker, useParams, useSearchParams } from "react-router-dom";
 import { FlowPageSlidingContainerContent } from "@/components/core/playgroundComponent/sliding-container/components/flow-page-sliding-container";
 import { SidebarProvider, useSidebar } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
 import {
   SimpleSidebar,
   SimpleSidebarProvider,
@@ -58,7 +59,8 @@ function FlowPageMainContent({
       resource === "data" ||
       resource === "tools" ||
       resource === "components" ||
-      resource === "templates"
+      resource === "templates" ||
+      resource === "traces"
     ) {
       setActiveSection(resource === "tools" ? "components" : resource);
       setOpen(true);
@@ -105,6 +107,16 @@ function FlowPageMainContent({
         className="flex h-full w-full flex-col overflow-hidden"
         data-testid="flow-insights-embedded"
       >
+        <div className="shrink-0 border-b px-3 py-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            data-testid="history-return-canvas"
+            onClick={() => setActiveSection("components")}
+          >
+            ← 返回画布
+          </Button>
+        </div>
         <FlowInsightsContent
           flowId={flowId}
           refreshOnMount

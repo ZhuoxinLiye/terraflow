@@ -11,6 +11,11 @@ import type { AllNodeType } from "@/types/flow";
 import type { Message } from "@/types/messages";
 import { AppWidgetRegion } from "../app-widget-region";
 
+const mockNavigate = jest.fn();
+jest.mock("@/customization/hooks/use-custom-navigate", () => ({
+  useCustomNavigate: () => mockNavigate,
+}));
+
 // Every test in this file mocks the 3 project-files data sources so
 // AppWidgetRegion never issues real network requests. Empty by default;
 // individual tests override via mockReturnValueOnce where needed.
@@ -90,6 +95,7 @@ function makeGenericNode(overrides: {
 
 describe("AppWidgetRegion", () => {
   afterEach(() => {
+    mockNavigate.mockClear();
     useFlowStore.setState({ nodes: [], flowPool: {} });
     useFlowsManagerStore.setState({
       currentFlowId: "",
@@ -97,6 +103,13 @@ describe("AppWidgetRegion", () => {
     });
     useMessagesStore.setState({ messages: [] });
     useFolderStore.setState({ myCollectionId: "" });
+  });
+
+  it("opens native run history for the current flow without replacing it", async () => {
+    useFlowsManagerStore.setState({ currentFlowId: "flow-1" });
+    render(<AppWidgetRegion isChatOpen onShowChat={jest.fn()} />);
+    await userEvent.click(screen.getByTestId("app_run_history_button"));
+    expect(mockNavigate).toHaveBeenCalledWith("/flow/flow-1?resource=traces");
   });
 
   it("renders the empty state while no widgets exist", () => {
