@@ -789,7 +789,11 @@ class TestGeoProfile:
             assert gone not in geo
         assert "## Creating new custom components" in geo
         assert "## Examples" in geo
-        assert len(geo) < len(full) - 6000
+        from terraflow.agentic.services.project_boundaries import PROJECT_PROMPT
+
+        # Scope/evidence rules are required overhead; the existing generic
+        # sections must still remove the same amount of prompt text.
+        assert len(geo) - len(PROJECT_PROMPT) < len(full) - 6000
 
     async def test_geo_profile_toolkit_has_no_file_or_word_tools(self, monkeypatch):
         from terraflow.agentic.flows import flow_builder_assistant as fba

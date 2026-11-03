@@ -366,9 +366,20 @@ def get_graph(
     # chat instead of going through the generation pipeline. The classifier
     # output is naturally tiny (the prompt constrains it to one JSON object),
     # so the cost of leaving it uncapped is negligible — correctness wins.
+    from terraflow.agentic.services.project_boundaries import PROJECT_PROMPT, geo_profile
+
+    scope_prompt = (
+        "\nGEO PROFILE OVERRIDE: classify unrelated requests as off_topic, including generic "
+        "chatbot/RAG/software/poetry tasks. Project graph queries and remote-sensing data "
+        "analysis, scientific clarification, and their contextual follow-ups are in scope. "
+        "Use session/canvas context to resolve follow-ups; do not require domain keywords. "
+        "Requests for generic custom code or a code sandbox are off_topic in this profile. "
+        "This override supersedes the generic examples above.\n" + PROJECT_PROMPT
+        if geo_profile() else ""
+    )
     llm_config = {
         "input_value": chat_input.message_response,
-        "system_message": TRANSLATION_PROMPT,
+        "system_message": TRANSLATION_PROMPT + scope_prompt,
         "temperature": 0.1,  # Low temperature for consistent JSON output (dropped automatically for reasoning models)
     }
 

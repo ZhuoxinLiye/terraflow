@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import copy
 import os
 from contextlib import aclosing
@@ -147,13 +148,33 @@ async def _verify_flow_before_delivery(
         return None
 
     async def _run(flow: dict) -> dict:
+        from terraflow.agentic.services.project_boundaries import ProjectToolBudgetExceeded, request_tool_budget
+
+        budget = request_tool_budget.get()
+        if budget is not None:
+            try:
+                budget.consume("verify_flow")
+            except ProjectToolBudgetExceeded:
+                return {"error": "project_tool_budget_exhausted"}
         # A mis-wired water flow runs without raising; catch it before the run.
         wiring = geo_wiring_errors(flow)
         if wiring:
-            return {"error": "Geo wiring error: " + " ".join(wiring)}
-        return await run_working_flow(flow_data=flow, flow_id=flow_id, user_id=user_id)
+            error = "Geo wiring error: " + " ".join(wiring)
+            if budget is not None:
+                budget.last_run_error = error
+            return {"error": error}
+        result = await run_working_flow(flow_data=flow, flow_id=flow_id, user_id=user_id)
+        if budget is not None:
+            budget.last_run_error = result.get("error")
+        return result
 
     async def _fix(error: str) -> dict | None:
+        from terraflow.agentic.services.project_boundaries import request_tool_budget
+
+        budget = request_tool_budget.get()
+        if budget is not None and (budget.exhausted or budget.used >= budget.limit):
+            budget.exhausted = True
+            return None
         # Re-prompt the agent (non-streaming, same pattern as the
         # component retry) to actually rebuild the flow so it runs.
         await execute_flow_file(
@@ -332,6 +353,37 @@ async def execute_flow_with_validation(
     If validation fails, re-executes the flow with error context.
     Continues until valid code is generated or max retries reached.
     """
+    from terraflow.agentic.services.project_boundaries import geo_profile
+
+    if geo_profile():
+        # The existing non-stream /assist route is public too. Use the same
+        # request state/budget/finally contract as /assist/stream instead of a
+        # second retry implementation whose tools would reset their budgets.
+        complete = None
+        updates = []
+        terminal_error = None
+        stream = execute_flow_with_validation_streaming(
+            flow_filename, input_value, global_variables, max_retries=max_retries,
+            user_id=user_id, session_id=session_id, provider=provider,
+            model_name=model_name, api_key_var=api_key_var,
+        )
+        async with contextlib.aclosing(stream):
+            async for raw in stream:
+                if not raw.startswith("data:"):
+                    continue
+                event = json.loads(raw[5:])
+                if event.get("event") == "complete":
+                    complete = event["data"]
+                elif event.get("event") == "flow_update":
+                    updates.append(event)
+                elif event.get("event") in {"error", "cancelled"}:
+                    terminal_error = event.get("message") or event["event"]
+        result = complete if complete is not None else {
+            "result": terminal_error or "本次请求未得到可交付结果。", "task_success": False,
+            "execution_blocked": True, "reason_code": "agent_execution_error",
+        }
+        return {**result, **({"has_flow": True, "flow_updates": updates} if updates else {})}
+
     # Layer 1: Input sanitization
     sanitization = sanitize_input(input_value)
     if not sanitization.is_safe:
@@ -588,6 +640,16 @@ async def execute_flow_with_validation_streaming(
     request_started_at = perf_counter()
     scientific_runs: list[dict] = []
     final_response_text = ""
+    from terraflow.agentic.services.project_boundaries import (
+        PROJECT_GUIDANCE,
+        constrained_project_delivery,
+        geo_profile,
+        new_tool_budget,
+        obvious_scope_refusal,
+        request_tool_budget,
+    )
+
+    project_budget = new_tool_budget() if geo_profile() else None
     total_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
     def _accumulate(tokens: dict[str, int] | None, *, phase: str | None = None) -> None:
@@ -626,6 +688,8 @@ async def execute_flow_with_validation_streaming(
                 data, scientific_runs[-1], duration=perf_counter() - request_started_at, usage=total_usage
             )
             final_response_text = data.get("result") or final_response_text
+        if project_budget is not None:
+            data = constrained_project_delivery(data, project_budget, ran=bool(scientific_runs))
         payload = {
             **data,
             "usage": dict(total_usage),
@@ -641,6 +705,9 @@ async def execute_flow_with_validation_streaming(
         return
 
     current_input = sanitization.sanitized_input
+    if geo_profile() and (scope_message := obvious_scope_refusal(current_input)):
+        yield _complete({"result": scope_message, "task_success": False, "reason_code": "outside_project_scope"})
+        return
 
     # Reset per-request state before any tool can run or the canvas is read.
     reset_working_flow()
@@ -688,7 +755,10 @@ async def execute_flow_with_validation_streaming(
     if intent_result.intent == "off_topic":
         logger.info("Off-topic request detected, returning refusal")
         reset_working_flow()
-        yield _complete({"result": OFF_TOPIC_REFUSAL_MESSAGE})
+        refusal = {"result": PROJECT_GUIDANCE if geo_profile() else OFF_TOPIC_REFUSAL_MESSAGE}
+        if project_budget is not None:
+            refusal.update(task_success=False, reason_code="outside_project_scope")
+        yield _complete(refusal)
         return
 
     # Route based on intent classification.
@@ -819,6 +889,7 @@ async def execute_flow_with_validation_streaming(
     final_response_text = ""
 
     inspection_token = inspection_only.set(is_inspection)
+    project_budget_token = request_tool_budget.set(project_budget)
     try:
         # Bind the caller's user_id into the ContextVar that the MCP tools'
         # registry overlay reads (search_components / describe_component /
@@ -860,6 +931,9 @@ async def execute_flow_with_validation_streaming(
             tried_models.add(model_name)
 
         for attempt in range(total_attempts):
+            if project_budget is not None and project_budget.exhausted:
+                yield _complete({"result": "工具调用预算已用尽，本次任务未完成。"})
+                return
             # Check if client disconnected before starting
             if await check_cancelled():
                 logger.info("Client disconnected, cancelling generation")
@@ -1071,6 +1145,10 @@ async def execute_flow_with_validation_streaming(
 
                 # Q&A has no retry semantics — emit error and exit immediately
                 if not is_component_request:
+                    if project_budget is not None:
+                        yield _complete({"result": execution_error, "task_success": False,
+                                         "execution_blocked": True, "reason_code": "tool_execution_failed"})
+                        return
                     yield format_error_event(execution_error)
                     return
 
@@ -1449,6 +1527,7 @@ async def execute_flow_with_validation_streaming(
 
             current_input = VALIDATION_RETRY_TEMPLATE.format(error=validation.error, code=code)
     finally:
+        request_tool_budget.reset(project_budget_token)
         inspection_only.reset(inspection_token)
         # Always set cancel event when generator exits to stop any pending flow execution
         logger.debug("Assistant generator exiting, setting cancel event")

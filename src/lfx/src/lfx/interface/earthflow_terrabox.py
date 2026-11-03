@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import keyword
 import logging
 import re
@@ -14,6 +15,19 @@ from lfx.custom.utils import create_component_template
 logger = logging.getLogger(__name__)
 
 DEFAULT_TERRABOX_BASE_URL = "http://localhost:8000"
+
+# This is the only change to the previous canonical generator template.
+# Keeping it literal also permits an exact legacy-template comparison without
+# evaluating code or silently rewriting a user's custom component.
+REQUEST_BUDGET_HOOK_SOURCE = """        try:
+            from terraflow.agentic.services.project_boundaries import consume_project_http_call
+        except ImportError:
+            pass  # lfx may run without the Terraflow backend.
+        else:
+            budget_error = consume_project_http_call(self._TERRABOX_SLUG)
+            if budget_error:
+                return budget_error
+"""
 
 # Heuristic for spotting file references inside a Terrabox tool's arbitrary
 # output dict. Terrabox tool handlers don't follow a single naming
@@ -565,7 +579,7 @@ class {class_name}(LCToolComponent):
         base_url = self._base_url_value()
         url = f"{{base_url}}/v1/sdk/tools/{{self._TERRABOX_SLUG}}/execute"
         headers = {{"X-API-Key": api_key}}
-        try:
+{REQUEST_BUDGET_HOOK_SOURCE}        try:
             response = requests.post(
                 url,
                 headers=headers,
@@ -642,6 +656,39 @@ def build_terrabox_component_template(spec: TerraboxToolSpec) -> dict[str, Any]:
         }
     )
     return template
+
+
+def budget_compatible_component_source(code: str) -> tuple[str, str]:
+    """Return canonical current/legacy code only after a complete source match.
+
+    ast.literal_eval reads generator metadata without executing source. The
+    whole source must equal the current template or precisely the HEAD-era
+    template with only the request-budget hook removed. Custom edits are never
+    replaced. Whitespace normalization matches the existing canonical scanner.
+    """
+    def normalized(value):
+        return "\n".join(line.rstrip() for line in value.replace("\r\n", "\n").strip().splitlines())
+
+    try:
+        tree = ast.parse(code)
+        cls = next(node for node in tree.body if isinstance(node, ast.ClassDef))
+        fields = {}
+        for node in cls.body:
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                if node.targets[0].id in {"display_name", "description", "_TERRABOX_SLUG", "_TERRABOX_PARAMETERS"}:
+                    fields[node.targets[0].id] = ast.literal_eval(node.value)
+        if "_TERRABOX_SLUG" not in fields:
+            return code, "not_terrabox"
+        spec = TerraboxToolSpec(fields["_TERRABOX_SLUG"], fields["display_name"], fields["description"], fields["_TERRABOX_PARAMETERS"])
+        current = build_terrabox_component_source(spec)
+        if normalized(code) == normalized(current):
+            return code, "current"
+        legacy = current.replace(REQUEST_BUDGET_HOOK_SOURCE, "", 1)
+        if normalized(code) == normalized(legacy):
+            return current, "legacy_upgraded_in_memory"
+    except (SyntaxError, ValueError, TypeError, KeyError, StopIteration):
+        pass
+    return code, "unknown_source"
 
 
 def terrabox_toolkit_name(slug: str) -> str:

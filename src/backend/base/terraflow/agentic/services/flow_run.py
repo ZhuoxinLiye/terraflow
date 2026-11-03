@@ -380,6 +380,22 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
     payload = flow_data.get("data") or {}
     flow_name = flow_data.get("name") or "Assistant Flow"
 
+    from terraflow.agentic.services.project_boundaries import (
+        geo_profile, prepare_terrabox_budget_payload, request_tool_budget, vertex_result_failures,
+    )
+
+    budget_coverage = None
+    if geo_profile() and request_tool_budget.get() is not None:
+        payload, budget_coverage = prepare_terrabox_budget_payload(payload, _get_canonical_code_map())
+        if not budget_coverage["complete_for_generated_terrabox"]:
+            if budget_coverage["unverified_nested"]:
+                return {"error": "该旧式嵌套流程路径尚未验证调用预算，本次助手不运行；原保存流程保持不变。",
+                        "task_success": False, "execution_blocked": True,
+                        "reason_code": "nested_flow_budget_unverified", "budget_coverage": budget_coverage}
+            return {"error": "部分Terrabox组件来源未知，无法落实本次调用预算；请刷新这些组件后重试。",
+                    "task_success": False, "execution_blocked": True,
+                    "reason_code": "terrabox_budget_refresh_required", "budget_coverage": budget_coverage}
+
     from terraflow.agentic.services.geo_wiring import geo_wiring_errors
 
     wiring = geo_wiring_errors(flow_data)
@@ -443,6 +459,8 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
         "duration_seconds": round(perf_counter() - started, 3),
         **extract_graph_token_usage(graph),
     }
+    if budget_coverage is not None:
+        metrics["budget_coverage"] = budget_coverage
     logger.info(
         "assistant.run_flow.completed flow_id=%s duration_s=%s total_tokens=%s",
         flow_id,
@@ -456,6 +474,13 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
     rows = node_outputs(vertex_results)
     sources = input_evidence(flow_data, vertex_results, rows)
     report_evidence = {"node_results": rows, "sources": sources}
+    if geo_profile():
+        failures = vertex_result_failures(vertex_results)
+        if failures:
+            return {"error": "工具结果明确失败或被阻断：" + "; ".join(failures),
+                    "task_success": False, "execution_blocked": True,
+                    "reason_code": "tool_execution_failed", "metrics": metrics,
+                    "vertex_results": vertex_results, "report_evidence": report_evidence}
     model_sources = [
         {
             k: v

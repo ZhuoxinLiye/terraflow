@@ -589,9 +589,16 @@ async def build_toolkit() -> list:
 
     tools.append(StructuredTool.from_function(coroutine=search_reusable_flows))
     if inspection_only.get():
-        return [tool for tool in tools if tool.name in READ_TOOL_NAMES]
-    if assistant_geo_profile():
+        tools = [tool for tool in tools if tool.name in READ_TOOL_NAMES]
+        if assistant_geo_profile():
+            from terraflow.agentic.services.project_boundaries import budget_tools
+
+            return budget_tools(tools)
         return tools
+    if assistant_geo_profile():
+        from terraflow.agentic.services.project_boundaries import budget_tools
+
+        return budget_tools(tools)
 
     # Sandboxed filesystem tools. We instantiate a fresh component per build so
     # each request gets its own ``bound_user_id`` capture inside ``_get_tools``.
@@ -859,6 +866,9 @@ def build_system_prompt() -> str:
     base = FLOW_BUILDER_PROMPT
     if assistant_geo_profile():
         base = _drop_sections(base, GEO_PROFILE_DROPPED_SECTIONS)
+        from terraflow.agentic.services.project_boundaries import PROJECT_PROMPT
+
+        base += PROJECT_PROMPT
     system_prompt = base + geo_prompt_addendum()
     if inspection_only.get():
         system_prompt += (

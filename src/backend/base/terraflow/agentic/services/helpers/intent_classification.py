@@ -213,6 +213,11 @@ async def classify_intent(
     if not text:
         return IntentResult(translation=text, intent="question")
 
+    from terraflow.agentic.services.project_boundaries import geo_profile, obvious_scope_refusal
+
+    if geo_profile() and obvious_scope_refusal(text):
+        return IntentResult(translation=text, intent="off_topic")
+
     # Deterministic: the edit-approval continuation is a backend protocol
     # string, not a user question. It must reach the flow-builder assistant
     # (a flow request) so the agent can finish the deferred steps — never
