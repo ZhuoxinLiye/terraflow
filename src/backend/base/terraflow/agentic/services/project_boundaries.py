@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextvars
 import copy
+import json
 import os
 import re
 import threading
@@ -140,28 +141,66 @@ def budget_tools(tools: list) -> list:
     including post-build verification and every repair agent instance.
     """
     from langchain_core.tools import StructuredTool
+    from langchain_core.runnables import RunnableConfig
 
     budget = request_tool_budget.get()
     if budget is None:
         budget = new_tool_budget()
 
     def wrap(original):
-        async def invoke(**arguments):
-            budget.consume(original.name)
-            try:
-                result = await original.ainvoke(arguments)
-            except Exception as exc:
-                if original.name == "run_flow":
-                    budget.last_run_error = str(exc) or type(exc).__name__
-                raise
+        if (original.metadata or {}).get("earthmind_request_budget_id") == id(budget):
+            return original
+
+        def record(result):
             data = result.data if hasattr(result, "data") else result
-            if original.name == "run_flow" and isinstance(data, dict):
-                budget.last_run_error = str(data["error"]) if data.get("error") else result_failure(data)
+            if original.name == "run_flow":
+                if hasattr(result, "content"):
+                    try:
+                        data = json.loads(result.content)
+                    except (ValueError, TypeError):
+                        data = {}
+                if getattr(result, "status", None) == "error":
+                    budget.last_run_error = str(getattr(result, "content", "tool_error"))
+                elif isinstance(data, dict):
+                    budget.last_run_error = str(data["error"]) if data.get("error") else result_failure(data)
             return result
 
-        return StructuredTool.from_function(coroutine=invoke, name=original.name,
-                                             description=original.description, args_schema=original.args_schema)
+        class RequestBudgetTool(StructuredTool):
+            # Delegate the complete call, including ToolCall ID injection,
+            # callbacks, handled exceptions, status and artifact protocol.
+            def invoke(self, input: Any, config: RunnableConfig | None = None, **kwargs):
+                budget.consume(original.name)
+                try:
+                    return record(original.invoke(input, config=config, **kwargs))
+                except Exception as exc:
+                    if original.name == "run_flow":
+                        budget.last_run_error = str(exc) or type(exc).__name__
+                    raise
+
+            async def ainvoke(self, input: Any, config: RunnableConfig | None = None, **kwargs):
+                budget.consume(original.name)
+                try:
+                    return record(await original.ainvoke(input, config=config, **kwargs))
+                except Exception as exc:
+                    if original.name == "run_flow":
+                        budget.last_run_error = str(exc) or type(exc).__name__
+                    raise
+
+        return RequestBudgetTool(name=original.name, description=original.description,
+                                 args_schema=original.get_input_schema(),
+                                 return_direct=original.return_direct, response_format=original.response_format,
+                                 callbacks=original.callbacks, tags=original.tags,
+                                 metadata={**(original.metadata or {}), "earthmind_request_budget_id": id(budget)},
+                                 handle_tool_error=original.handle_tool_error,
+                                 handle_validation_error=original.handle_validation_error)
     return [wrap(tool) for tool in tools]
+
+
+def bound_budget_tools(tools: list) -> list:
+    """Hook for actual bundled inline Agents; no binding/profile means no-op."""
+    if not geo_profile() or request_tool_budget.get() is None:
+        return tools
+    return budget_tools(tools)
 
 
 def vertex_result_failures(records: list[dict]) -> list[str]:

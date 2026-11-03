@@ -346,6 +346,7 @@ async def execute_flow_with_validation(
     provider: str | None = None,
     model_name: str | None = None,
     api_key_var: str | None = None,
+    inherit_tool_budget: bool = False,
 ) -> dict:
     """Execute flow and validate the generated component code.
 
@@ -366,6 +367,7 @@ async def execute_flow_with_validation(
             flow_filename, input_value, global_variables, max_retries=max_retries,
             user_id=user_id, session_id=session_id, provider=provider,
             model_name=model_name, api_key_var=api_key_var,
+            inherit_tool_budget=inherit_tool_budget,
         )
         async with contextlib.aclosing(stream):
             async for raw in stream:
@@ -615,6 +617,7 @@ async def execute_flow_with_validation_streaming(
     model_name: str | None = None,
     api_key_var: str | None = None,
     is_disconnected: Callable[[], Coroutine[Any, Any, bool]] | None = None,
+    inherit_tool_budget: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Execute flow with validation, yielding SSE progress and token events.
 
@@ -649,7 +652,9 @@ async def execute_flow_with_validation_streaming(
         request_tool_budget,
     )
 
-    project_budget = new_tool_budget() if geo_profile() else None
+    project_budget = (request_tool_budget.get() if inherit_tool_budget else None) if geo_profile() else None
+    if geo_profile() and project_budget is None:
+        project_budget = new_tool_budget()
     total_usage: dict[str, int] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
 
     def _accumulate(tokens: dict[str, int] | None, *, phase: str | None = None) -> None:

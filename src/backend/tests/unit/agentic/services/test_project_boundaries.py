@@ -315,3 +315,29 @@ async def test_nonstream_cancellation_closes_generator_without_budget_leak(monke
             await task
     assert closed == [None]
     assert request_tool_budget.get() is None
+
+
+async def test_controlled_nested_service_inherits_parent_budget_but_external_request_is_fresh(monkeypatch):
+    from terraflow.agentic.services.assistant_service import execute_flow_with_validation
+    from terraflow.agentic.services.flow_types import IntentResult
+
+    monkeypatch.setenv("TERRAFLOW_ASSISTANT_PROFILE", "geo")
+    observed = []
+
+    async def execute(**kwargs):
+        budget = request_tool_budget.get()
+        observed.append(budget)
+        budget.consume("synthetic_child_tool")
+        yield "end", {"result": "synthetic response"}
+
+    parent = ToolBudget(limit=5)
+    token = request_tool_budget.set(parent)
+    try:
+        with patch("terraflow.agentic.services.assistant_service.classify_intent", new_callable=AsyncMock, return_value=IntentResult(intent="question", translation="query")), patch("terraflow.agentic.services.assistant_service._get_current_flow_summary", new_callable=AsyncMock, return_value=None), patch("terraflow.agentic.services.assistant_service.execute_flow_file_streaming", side_effect=execute):
+            await asyncio.create_task(execute_flow_with_validation("TerraflowAssistant.json", "项目问题", {}, inherit_tool_budget=True))
+            await execute_flow_with_validation("TerraflowAssistant.json", "项目问题", {})
+        assert observed[0] is parent and observed[1] is not parent
+        assert parent.used == 1
+        assert request_tool_budget.get() is parent
+    finally:
+        request_tool_budget.reset(token)

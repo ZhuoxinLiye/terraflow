@@ -499,6 +499,7 @@ class GenerateComponent(Component):
                 provider=model.get("provider"),
                 model_name=model.get("model_name"),
                 api_key_var=model.get("api_key_var"),
+                inherit_tool_budget=True,
             )
 
         # asyncio.create_task runs the coroutine in a COPY of the current
