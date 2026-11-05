@@ -234,6 +234,14 @@ def constrained_delivery(data: dict, run: dict, *, duration: float, usage: dict)
         facts, errors = {"unsupported_schema": True}, ["invalid_measurement_schema"]
     if not facts:
         return data
+    expected = {"change_answerable": "geo_water.water_evidence", "class_answerable": "geo_water.water_by_class",
+                "comparison_answerable": "geo_water.compare_with_reference", "coverage_bbox_wgs84": "geo_water.rasterize_reference"}
+    identities = evidence.get("trusted_tool_nodes") or {}
+    for field, slug in expected.items():
+        rows = [row for row in evidence.get("node_results", []) if field in (row.get("outputs") or {})]
+        if len(rows) != 1 or identities.get(rows[0].get("node_id")) != slug:
+            errors.append("unverified_measurement_tool_identity")
+            break
     audit = {
         "mode": "evidence_bound_renderer",
         "passed": not errors,

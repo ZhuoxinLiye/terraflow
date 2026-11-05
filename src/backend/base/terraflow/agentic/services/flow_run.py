@@ -473,7 +473,11 @@ async def run_working_flow(*, flow_data: dict, flow_id: str, user_id: str | None
 
     rows = node_outputs(vertex_results)
     sources = input_evidence(flow_data, vertex_results, rows)
+    from terraflow.agentic.services.project_boundaries import trusted_tool_nodes
+
     report_evidence = {"node_results": rows, "sources": sources}
+    if geo_profile():
+        report_evidence["trusted_tool_nodes"] = trusted_tool_nodes(payload, _get_canonical_code_map())
     if geo_profile():
         failures = vertex_result_failures(vertex_results)
         if failures:

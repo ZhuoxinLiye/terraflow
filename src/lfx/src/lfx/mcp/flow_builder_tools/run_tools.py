@@ -343,7 +343,24 @@ class RunFlow(Component):
 
         result = await run_working_flow(flow_data=flow, flow_id=flow_id, user_id=user_id)
         if "error" in result:
-            return Data(data={"error": result["error"], "text": result["error"]})
+            # A failed run still has real node receipts (for example invalid
+            # graph scope or ambiguous names). Keep those available to the
+            # server renderer without announcing successful execution or
+            # proposing reuse/canvas application.
+            _emit(
+                "flow_run_failed",
+                flow_id=flow_id,
+                error=result["error"],
+                reason_code=result.get("reason_code"),
+                vertex_results=result.get("vertex_results", []),
+                report_evidence=result.get("report_evidence"),
+                metrics=result.get("metrics", {}),
+                execution_success=False,
+                task_success=False,
+            )
+            return Data(data={"error": result["error"], "text": result["error"],
+                              "reason_code": result.get("reason_code"), "execution_success": False,
+                              "task_success": False, "metrics": result.get("metrics", {})})
         # Deterministic, LLM/language-agnostic signal that the flow ACTUALLY
         # ran this turn. The streaming generator uses it to apply a built
         # flow to the canvas (running a flow the user can't see is

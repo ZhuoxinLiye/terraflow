@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextvars
+import ast
 import copy
 import json
 import os
@@ -284,20 +285,53 @@ def prepare_terrabox_budget_payload(payload: dict, canonical: dict[str, str]) ->
     return prepared, coverage
 
 
+def trusted_tool_nodes(payload: dict, canonical: dict[str, str]) -> dict[str, str]:
+    """Identify executed registry tools only after exact canonical-source match.
+
+    Node names, result keys and self-declared provenance do not authenticate a
+    tool. The runner passes its execution copy after approved legacy upgrades.
+    This mapping is built server-side, not accepted from model input.
+    """
+    trusted = {}
+    for node in payload.get("nodes", []):
+        data = node.get("data") or {}
+        kind = data.get("type")
+        expected = canonical.get(kind)
+        field = ((data.get("node") or {}).get("template") or {}).get("code")
+        actual = field.get("value") if isinstance(field, dict) else expected if field is None else None
+        if not expected or not isinstance(actual, str) or actual.strip().replace("\r\n", "\n") != expected.strip().replace("\r\n", "\n"):
+            continue
+        try:
+            tree = ast.parse(expected)
+            for item in ast.walk(tree):
+                if isinstance(item, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "_TERRABOX_SLUG" for target in item.targets):
+                    slug = ast.literal_eval(item.value)
+                    if isinstance(slug, str):
+                        trusted[str(node["id"])] = slug
+        except (SyntaxError, ValueError, TypeError):
+            continue
+    return trusted
+
+
 def constrained_project_delivery(data: dict, budget: ToolBudget, *, ran: bool) -> dict:
     """An executor outcome can veto completion without certifying arbitrary prose."""
     payload = {**data, "tool_budget": budget.summary()}
     error = "project_tool_budget_exhausted" if budget.exhausted else budget.last_run_error
     if error:
         message = "工具调用预算已用尽，本次任务未完成。" if budget.exhausted else f"工具执行失败，本次任务未完成：{error}"
-        payload.update(raw_model_response=data.get("result", ""), result=message, task_success=False,
+        if not budget.exhausted and data.get("graph_report_audit", {}).get("passed") is False:
+            message = data.get("result") or message
+        payload.update(raw_model_response=data.get("raw_model_response", data.get("model_response_original", data.get("result", ""))), result=message, task_success=False,
                        execution_blocked=True, reason_code="tool_budget_exhausted" if budget.exhausted else "tool_execution_failed")
     elif ran:
         payload["execution_success"] = True
         # A generic run does not prove the user's task or arbitrary numeric
         # prose. Only the existing scientific report audit certifies its
         # supported report type; graph/UI task acceptance remains separate.
-        payload["task_success"] = data.get("report_audit", {}).get("passed")
+        if data.get("delivery_contract", {}).get("version") == "earthmind-scientific-delivery-v1":
+            payload["task_success"] = data.get("task_success")
+        else:
+            payload["task_success"] = data.get("report_audit", {}).get("passed")
     return payload
 
 

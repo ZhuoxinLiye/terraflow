@@ -249,6 +249,9 @@ def clear_session_history(user_id: str | None, session_id: str | None) -> None:
     if not session_id or not user_id:
         return
     get_conversation_buffer().clear(user_id, session_id)
+    from terraflow.agentic.services.scientific_delivery import clear_runs
+
+    clear_runs(user_id, session_id)
 
 
 def record_conversation_turn(
@@ -542,8 +545,8 @@ def _reconcile_flow_updates(
       re-applying the same flow is idempotent (full replace);
     - ``set_flow_applied`` guards against ever emitting it twice.
 
-    ``flow_ran`` is internal; real node results are forwarded as
-    ``run_result`` after canvas reconciliation to match the visible graph.
+    ``flow_ran`` and ``flow_run_failed`` are internal; actual node receipts
+    are forwarded as ``run_result``. Only success can force canvas application.
 
     Args:
         updates: The freshly drained event batch.
@@ -568,7 +571,7 @@ def _reconcile_flow_updates(
     events: list[dict] = []
     for update in updates:
         action = update.get("action")
-        if action == "flow_ran":
+        if action in {"flow_ran", "flow_run_failed"}:
             continue  # internal-only signal; the canvas has no reducer for it
         if action == "set_flow":
             saw_set_flow = True
@@ -592,15 +595,21 @@ def _reconcile_flow_updates(
         {
             "action": "run_result",
             "flow_id": update.get("flow_id"),
-            "vertex_results": update["vertex_results"],
+            "vertex_results": update.get("vertex_results", []),
             **(
                 {key: update.get(key) for key in ("report_evidence", "metrics", "reuse_proposal")}
                 if update.get("report_evidence")
                 else {}
             ),
+            **(
+                {"execution_success": False, "task_success": False,
+                 "error": update.get("error"), "reason_code": update.get("reason_code"),
+                 "metrics": update.get("metrics", {})}
+                if update.get("action") == "flow_run_failed" else {}
+            ),
         }
         for update in updates
-        if update.get("action") == "flow_ran" and update.get("vertex_results")
+        if (update.get("action") == "flow_ran" and update.get("vertex_results")) or update.get("action") == "flow_run_failed"
     )
     return events, auto_apply_flow, saw_set_flow, saw_run, last_set_flow, set_flow_applied
 
@@ -643,6 +652,14 @@ async def execute_flow_with_validation_streaming(
     request_started_at = perf_counter()
     scientific_runs: list[dict] = []
     final_response_text = ""
+    from terraflow.agentic.services.scientific_delivery import (
+        ScientificRequest, classify_scientific_request, clarification, scientific_execution_forbidden,
+        constrain_scientific_delivery, historical_measurement_request, previous_runs, remember_runs,
+    )
+
+    scientific_request = ScientificRequest()
+    recent_user_texts: list[str] = []
+    prior_runs: list[dict] = []
     from terraflow.agentic.services.project_boundaries import (
         PROJECT_GUIDANCE,
         constrained_project_delivery,
@@ -684,17 +701,53 @@ async def execute_flow_with_validation_streaming(
                     int(tokens.get("total_tokens", 0) or 0),
                 )
 
-    def _complete(data: dict) -> str:
+    def _complete(data: dict, *, trusted_delivery: bool = False) -> str:
         nonlocal final_response_text
+        if project_budget is not None and not trusted_delivery:
+            # Engine/model output cannot self-attest a renderer audit. These
+            # proof fields are created only by the server-owned paths below.
+            proof_fields = {"report_audit", "delivery_contract", "scientific_delivery_contract", "measurement_evidence",
+                            "graph_report_audit", "scene_evidence", "raw_model_response", "model_response_original"}
+            data = {key: value for key, value in data.items() if key not in proof_fields}
+            if data.get("task_success") is True:
+                data.pop("task_success")
         if scientific_runs:
             from terraflow.agentic.services.scientific_report import constrained_delivery
 
             data = constrained_delivery(
                 data, scientific_runs[-1], duration=perf_counter() - request_started_at, usage=total_usage
             )
-            final_response_text = data.get("result") or final_response_text
+        if project_budget is not None and not data.get("execution_blocked"):
+            selected_runs = scientific_runs or (prior_runs if scientific_request.historical else [])
+            from terraflow.agentic.services.graph_delivery import constrained_graph_delivery
+
+            if not scientific_request.conceptual and data.get("delivery_contract", {}).get("kind") != "scene_inspection":
+                data = constrained_graph_delivery(
+                    data, scientific_runs, user_text=sanitization.sanitized_input,
+                    recent_user_texts=recent_user_texts, prior_runs=prior_runs,
+                )
+            if data.get("report_audit", {}).get("mode") == "evidence_bound_renderer" and scientific_request.topic == "measurement":
+                data["delivery_contract"] = {"version": "earthmind-scientific-delivery-v1", "kind": "audited_measurement"}
+                data["task_success"] = data["report_audit"]["passed"]
+            else:
+                data = constrain_scientific_delivery(data, scientific_request, selected_runs)
         if project_budget is not None:
-            data = constrained_project_delivery(data, project_budget, ran=bool(scientific_runs))
+            failed_run = scientific_runs[-1] if scientific_runs and scientific_runs[-1].get("execution_success") is False else None
+            if failed_run:
+                # Receipt of a failure is evidence of an attempt, never proof
+                # of a successful execution. Keep an audited domain failure;
+                # otherwise replace model completion prose with the real error.
+                if not (data.get("graph_report_audit", {}).get("passed") is False or
+                        data.get("report_audit", {}).get("passed") is False or
+                        data.get("delivery_contract", {}).get("kind") == "unsupported_measurement"):
+                    data = {**data, "raw_model_response": data.get("raw_model_response", data.get("result", "")),
+                            "result": "工具执行失败，本次任务未完成：" + str(failed_run.get("error") or "tool_execution_failed")}
+                data.update(execution_success=False, task_success=False)
+            data = constrained_project_delivery(data, project_budget, ran=bool(scientific_runs) and not failed_run)
+            remember_runs(user_id, session_id, global_variables.get("FLOW_ID"), scientific_runs)
+        # Conversation memory receives the exact final delivery, never unvetted
+        # model prose later replaced by the scientific/graph evidence renderer.
+        final_response_text = data.get("result") or ""
         payload = {
             **data,
             "usage": dict(total_usage),
@@ -714,6 +767,31 @@ async def execute_flow_with_validation_streaming(
         yield _complete({"result": scope_message, "task_success": False, "reason_code": "outside_project_scope"})
         return
 
+    recent_turns = get_conversation_buffer().get_recent(user_id, session_id) if user_id and session_id else []
+    recent_user_texts = [turn.user for turn in recent_turns]
+    if geo_profile():
+        scientific_request = classify_scientific_request(current_input, recent_user_texts)
+        prior_runs = previous_runs(user_id, session_id, global_variables.get("FLOW_ID"))
+        scientific_request = historical_measurement_request(current_input, scientific_request, prior_runs)
+        if scientific_request.topic == "measurement" and scientific_request.historical and scientific_execution_forbidden(current_input):
+            # A historical no-rerun measurement reads typed prior receipts only;
+            # it cannot create a new run even if a classifier/model requests one.
+            event = _complete({"result": ""}, trusted_delivery=True)
+            record_conversation_turn(user_id=user_id, session_id=session_id,
+                                     user_input=current_input, assistant_response=final_response_text)
+            yield event
+            return
+        if scientific_request.conceptual and not (
+            scientific_request.topic == "missing_measurement" and (global_variables.get("FLOW_ID") or prior_runs)
+        ):
+            delivery = clarification(scientific_request)
+            # No model call, numeric approximation or invented method standard.
+            event = _complete(delivery, trusted_delivery=True)
+            record_conversation_turn(user_id=user_id, session_id=session_id,
+                                     user_input=current_input, assistant_response=final_response_text)
+            yield event
+            return
+
     # Reset per-request state before any tool can run or the canvas is read.
     reset_working_flow()
     reset_file_events()
@@ -726,12 +804,47 @@ async def execute_flow_with_validation_streaming(
     # prefix — it must never be read twice (extra DB round-trip).
     current_flow_summary = await _get_current_flow_summary(global_variables.get("FLOW_ID"), user_id=user_id)
 
+    if geo_profile() and scientific_request.topic == "missing_measurement":
+        working = get_working_flow() or {}
+        selected_nodes = (working.get("data") or {}).get("nodes") or []
+        if selected_nodes or prior_runs:
+            # The user need not repeat paths selected on the current canvas.
+            # Tools inspect actual inputs/records; this is not proof of a valid
+            # measurement and the final renderer still requires its evidence.
+            scientific_request = ScientificRequest("measurement", False, scientific_request.historical)
+        else:
+            event = _complete(clarification(scientific_request), trusted_delivery=True)
+            record_conversation_turn(user_id=user_id, session_id=session_id,
+                                     user_input=current_input, assistant_response=final_response_text)
+            reset_working_flow()
+            yield event
+            return
+
+    if geo_profile():
+        from terraflow.agentic.services.scene_evidence import load_scene_builds, render_scene_evidence, scene_inspection_requested
+
+        if scene_inspection_requested(current_input, recent_user_texts):
+            from lfx.components.geo_workflow.scene_input import read_scene_index
+
+            history_error = False
+            try:
+                builds = await load_scene_builds(global_variables.get("FLOW_ID"), user_id)
+            except Exception:  # history outage must not become "no output"
+                builds, history_error = [], True
+            scene_delivery = render_scene_evidence(get_working_flow() or {}, read_scene_index(), builds, history_error=history_error)
+            if scene_delivery is not None:
+                event = _complete(scene_delivery, trusted_delivery=True)
+                record_conversation_turn(user_id=user_id, session_id=session_id,
+                                         user_input=current_input, assistant_response=final_response_text)
+                reset_working_flow()
+                yield event
+                return
+
     # Give the intent classifier the session's recent turns + canvas state so
     # a follow-up edit ("add a second agent", "use the SumComponent") routes
     # to build_flow instead of falling back to question/off_topic and being
     # answered with text. No turns + empty canvas → context is None and the
     # classifier input is byte-identical to before (regression-safe).
-    recent_turns = get_conversation_buffer().get_recent(user_id, session_id) if user_id and session_id else []
     intent_context = build_intent_context(recent_turns, current_flow_summary)
 
     # Classify intent using LLM (handles multi-language support).
@@ -786,7 +899,9 @@ async def execute_flow_with_validation_streaming(
     # not go through the plan gate nor the no-action build guard. It shares
     # the FlowBuilderAssistant toolkit only because that's where run_flow lives.
     is_run_request = intent_result.intent == "run_flow"
-    is_inspection = intent_result.intent == "inspect_flow"
+    is_inspection = intent_result.intent == "inspect_flow" or (
+        geo_profile() and intent_result.intent == "question" and scientific_execution_forbidden(sanitization.sanitized_input)
+    )
     logger.info(f"Intent classification: {intent_result.intent}")
 
     # Inject current flow context for all intents so the agent
@@ -1048,7 +1163,7 @@ async def execute_flow_with_validation_streaming(
                                 if events_to_emit:
                                     has_flow_updates = True
                                 for emitted in events_to_emit:
-                                    if emitted.get("action") == "run_result" and emitted.get("report_evidence"):
+                                    if emitted.get("action") == "run_result" and (emitted.get("report_evidence") or emitted.get("execution_success") is False):
                                         scientific_runs.append(emitted)
                                     yield format_flow_update_event(emitted)
                                 # Drain file_written events the same way — each one
@@ -1074,7 +1189,8 @@ async def execute_flow_with_validation_streaming(
                                         component_code=comp_event.get("component_code"),
                                     )
                                 if event_type == "token":
-                                    yield format_token_event(event_data)
+                                    if project_budget is None:
+                                        yield format_token_event(event_data)
                                 elif not event_data.get("done"):
                                     yield format_progress_event(
                                         _tool_step(event_data.get("name") or ""),
@@ -1212,7 +1328,7 @@ async def execute_flow_with_validation_streaming(
             if events_to_emit:
                 has_flow_updates = True
             for emitted in events_to_emit:
-                if emitted.get("action") == "run_result" and emitted.get("report_evidence"):
+                if emitted.get("action") == "run_result" and (emitted.get("report_evidence") or emitted.get("execution_success") is False):
                     scientific_runs.append(emitted)
                 yield format_flow_update_event(emitted)
             # Drain any remaining file_written events emitted after the last token.
@@ -1251,6 +1367,7 @@ async def execute_flow_with_validation_streaming(
                     is_flow_request
                     and saw_set_flow
                     and not saw_run
+                    and not any(run.get("execution_success") is False for run in scientific_runs)
                     and not _forbids_flow_execution(original_user_input)
                 ):
                     # The trial run (and any fix turn) can take minutes; say so.

@@ -63,8 +63,8 @@ def evidence():
     threshold = {"threshold": -15, "input_transform": "db", "direction": "below"}
     return {
         "node_results": [
-            {"outputs": r}
-            for r in [
+            {"node_id": f"synthetic-{i}", "outputs": r}
+            for i, r in enumerate([
                 change,
                 classes,
                 ref,
@@ -73,8 +73,10 @@ def evidence():
                 threshold,
                 {"common_valid_pixels": 100, "before": {"nodata": [-32768]}, "after": {"nodata": [-32768]}},
                 {"resampling": "nearest", "source_nodata": 0, "output_nodata": 0},
-            ]
+            ])
         ],
+        "trusted_tool_nodes": {"synthetic-0": "geo_water.water_evidence", "synthetic-1": "geo_water.water_by_class",
+                               "synthetic-2": "geo_water.compare_with_reference", "synthetic-3": "geo_water.rasterize_reference"},
         "sources": [
             {"role": role, "datetime": date, "source_urls": ["https://example.org/synthetic"], "input_scale": "linear"}
             for role, date in [
