@@ -9,6 +9,12 @@ import type { WidgetContentProps } from "@/types/appPage/widget";
 import { MapWidget } from "../map-widget";
 
 const mockMaps: any[] = [];
+const mockSetWorkerUrl = jest.fn();
+jest.mock(
+  "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url",
+  () => "synthetic-bundled-worker-url",
+  { virtual: true },
+);
 jest.mock(
   "maplibre-gl",
   () => ({
@@ -36,6 +42,7 @@ jest.mock(
       return map;
     }),
     AttributionControl: jest.fn(),
+    setWorkerUrl: mockSetWorkerUrl,
   }),
   { virtual: true },
 );
@@ -60,12 +67,14 @@ const props = {
 
 beforeEach(() => {
   mockMaps.length = 0;
+  mockSetWorkerUrl.mockClear();
 });
 
 it("shows input geometry without requesting an online basemap or waiting for tile load", async () => {
   render(<MapWidget {...props} />);
   await waitFor(() => expect(mockMaps).toHaveLength(1));
   const map = mockMaps[0];
+  expect(mockSetWorkerUrl).toHaveBeenCalledWith("synthetic-bundled-worker-url");
   expect(map.options.style.sources).toEqual({});
   expect(map.events.load).toBeUndefined();
   act(() => {

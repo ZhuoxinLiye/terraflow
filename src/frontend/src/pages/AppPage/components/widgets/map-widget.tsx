@@ -98,76 +98,87 @@ function MapCanvas({ geojson }: { geojson: GeoJsonLike }) {
     // Dynamically imported (like mammoth/xlsx in the docx/spreadsheet
     // widgets) so this ~800KB dependency only ships to a client that
     // actually renders a map widget, rather than in the main bundle.
-    import("maplibre-gl").then(({ Map: MapLibreMap, AttributionControl }) => {
-      if (cancelled || !containerRef.current) return;
-      map = new MapLibreMap({
-        container: containerRef.current,
-        style: showBasemap ? OSM_STYLE : GEOMETRY_STYLE,
-        center: [0, 0],
-        zoom: 1,
-        attributionControl: false,
-      });
-      map.addControl(new AttributionControl(), "bottom-right");
+    Promise.all([
+      import("maplibre-gl"),
+      import("maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url"),
+    ]).then(
+      ([
+        { Map: MapLibreMap, AttributionControl, setWorkerUrl },
+        { default: mapLibreWorkerUrl },
+      ]) => {
+        if (cancelled || !containerRef.current) return;
+        // MapLibre 6 otherwise guesses a worker next to its bundled module.
+        // Vite must emit the worker and its imports as real build assets.
+        setWorkerUrl(mapLibreWorkerUrl);
+        map = new MapLibreMap({
+          container: containerRef.current,
+          style: showBasemap ? OSM_STYLE : GEOMETRY_STYLE,
+          center: [0, 0],
+          zoom: 1,
+          attributionControl: false,
+        });
+        map.addControl(new AttributionControl(), "bottom-right");
 
-      // `load` also waits for visible raster tiles. Attach the input geometry
-      // when the style is ready so a failed basemap cannot hide valid data.
-      map.on("style.load", () => {
-        if (cancelled || !map) return;
-        // GeoJsonLike is intentionally loose (arbitrary tool output, not a validated
-        // GeoJSON.GeoJSON); maplibre only reads .type/.features/.geometry at runtime.
-        map.addSource("widget-data", {
-          type: "geojson",
-          data: geojson as GeoJSON.GeoJSON,
-        });
-        map.addLayer({
-          id: "widget-polygons",
-          type: "fill",
-          source: "widget-data",
-          filter: ["==", ["geometry-type"], "Polygon"],
-          paint: { "fill-color": "#3b82f6", "fill-opacity": 0.3 },
-        });
-        map.addLayer({
-          id: "widget-lines",
-          type: "line",
-          source: "widget-data",
-          filter: ["==", ["geometry-type"], "LineString"],
-          paint: { "line-color": "#3b82f6", "line-width": 2 },
-        });
-        map.addLayer({
-          id: "widget-points",
-          type: "circle",
-          source: "widget-data",
-          filter: ["==", ["geometry-type"], "Point"],
-          paint: { "circle-color": "#3b82f6", "circle-radius": 5 },
-        });
+        // `load` also waits for visible raster tiles. Attach the input geometry
+        // when the style is ready so a failed basemap cannot hide valid data.
+        map.on("style.load", () => {
+          if (cancelled || !map) return;
+          // GeoJsonLike is intentionally loose (arbitrary tool output, not a validated
+          // GeoJSON.GeoJSON); maplibre only reads .type/.features/.geometry at runtime.
+          map.addSource("widget-data", {
+            type: "geojson",
+            data: geojson as GeoJSON.GeoJSON,
+          });
+          map.addLayer({
+            id: "widget-polygons",
+            type: "fill",
+            source: "widget-data",
+            filter: ["==", ["geometry-type"], "Polygon"],
+            paint: { "fill-color": "#3b82f6", "fill-opacity": 0.3 },
+          });
+          map.addLayer({
+            id: "widget-lines",
+            type: "line",
+            source: "widget-data",
+            filter: ["==", ["geometry-type"], "LineString"],
+            paint: { "line-color": "#3b82f6", "line-width": 2 },
+          });
+          map.addLayer({
+            id: "widget-points",
+            type: "circle",
+            source: "widget-data",
+            filter: ["==", ["geometry-type"], "Point"],
+            paint: { "circle-color": "#3b82f6", "circle-radius": 5 },
+          });
 
-        const bounds = boundsOf(geojson);
-        if (bounds) {
-          map.fitBounds(bounds, { padding: 24, maxZoom: 14, duration: 0 });
-        }
-      });
-      map.on("error", (event) => {
-        if (cancelled || !showBasemap) return;
-        const isBasemapError =
-          ("sourceId" in event && event.sourceId === "osm") ||
-          event.error?.message.includes("tile.openstreetmap.org");
-        if (isBasemapError) setBasemapFailed(true);
-      });
-      map.on("render", () => {
-        if (
-          cancelled ||
-          !map?.getSource("widget-data") ||
-          !map.isSourceLoaded("widget-data")
-        )
-          return;
-        setGeometryReady(true);
-        setRenderedFeatures(
-          map.queryRenderedFeatures(undefined, {
-            layers: ["widget-polygons", "widget-lines", "widget-points"],
-          }).length,
-        );
-      });
-    });
+          const bounds = boundsOf(geojson);
+          if (bounds) {
+            map.fitBounds(bounds, { padding: 24, maxZoom: 14, duration: 0 });
+          }
+        });
+        map.on("error", (event) => {
+          if (cancelled || !showBasemap) return;
+          const isBasemapError =
+            ("sourceId" in event && event.sourceId === "osm") ||
+            event.error?.message.includes("tile.openstreetmap.org");
+          if (isBasemapError) setBasemapFailed(true);
+        });
+        map.on("render", () => {
+          if (
+            cancelled ||
+            !map?.getSource("widget-data") ||
+            !map.isSourceLoaded("widget-data")
+          )
+            return;
+          setGeometryReady(true);
+          setRenderedFeatures(
+            map.queryRenderedFeatures(undefined, {
+              layers: ["widget-polygons", "widget-lines", "widget-points"],
+            }).length,
+          );
+        });
+      },
+    );
 
     return () => {
       cancelled = true;
