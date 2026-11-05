@@ -40,17 +40,36 @@ def _provenance(out: dict) -> tuple[dict, str | None]:
     return {k: p.get(k) for k in ("dataset_id", "snapshot_id", "snapshot_sha256", "source_version", "synthetic", "read_only")}, None
 
 
+def _affirmative_operation(pattern: str, text: str) -> bool:
+    for match in re.finditer(pattern, text, re.I):
+        # A negated extra operation must not become a delivery requirement.
+        # Scope negation to the current clause; a later explicit request still
+        # counts (e.g. "不要搜索，但请读取详情").
+        prefix = re.split(r"[。；;，,\n]|但是|但|然后|另外", text[:match.start()])[-1]
+        if not re.search(r"无需|不要|不必", prefix):
+            return True
+    return False
+
+
 def _requested(text: str) -> set[str]:
     ops = set()
-    if re.search(r"详情|父级|对象类型|item_type|get_item", text, re.I):
+    if _affirmative_operation(r"详情|父级|对象类型|item_type|get_item", text):
         ops.add("graph_query.get_item")
     if re.search(r"计数|多少|统计|总数|query_nodes|\bcount\b|全部(?:目标|target)", text, re.I):
         ops.add("graph_query.query_nodes")
     # Error/ambiguity outputs already include candidates; mentioning those
     # candidates does not request another search operation.
-    if re.search(r"查找|搜索|search_graph|matched_fields|lookup", text, re.I):
+    if _affirmative_operation(r"查找|搜索|search_graph|matched_fields|lookup", text):
         ops.add("graph_query.search_graph")
     return ops
+
+
+def _complete_current_query(text: str) -> bool:
+    """An explicit current scoped query supplies its own delivery contract."""
+    value = r"\s*[=:：]\s*[`\"']?[A-Za-z0-9][A-Za-z0-9_-]*"
+    return ("graph_query.query_nodes" in _requested(text)
+            and bool(re.search(r"\b(?:facility_id|partition_id)" + value, text))
+            and bool(re.search(r"\b(?:node_type|target_type_contains)" + value, text)))
 
 
 def _affirmative(text: str) -> str:
@@ -65,6 +84,34 @@ def _tool_help_request(text: str) -> bool:
     history_result = _HISTORY.search(text) and re.search(r"结果|计数|总数|输出", text)
     specific_result = (_IDS.search(text) and re.search(r"结果|计数|总数|输出", text)) or re.search(r"(?:本次|此次|实际|当前)(?:的)?(?:计数|总数|结果|输出)", text)
     return bool(help_topic and not asks_result and not history_result and not specific_result)
+
+
+def _query_parameter_help(data: dict, text: str) -> dict:
+    """Finite help from the inspected N070 adapter contract, not model prose.
+
+    Pinned to Terrabox graph_query 0.1.0 at 3e49f1e: the toolkit schema and
+    GraphSnapshot.query_nodes core agree on hierarchy and exact category codes.
+    Update this finite contract if those validations change.
+    """
+    if not (re.search(r"query_nodes", text, re.I) and re.search(r"node_type|target_type_contains", text, re.I)):
+        return data
+    audit = {"kind": "annotation_graph_tool_contract", "passed": True,
+             "tool": "graph_query.query_nodes", "adapter_version": "0.1.0",
+             "contract_revision": "n070-query-nodes-2026-11-06", "source_commit": "3e49f1e",
+             "source_files": ["terrabox:src/terrabox/toolkits/graph_query.py", "terrabox:src/terrabox/core/graph_query_data.py"],
+             "evidence_kind": "locally_inspected_adapter_contract", "tool_execution_claimed": False}
+    payload = dict(data)
+    payload.setdefault("model_response_original", data.get("result"))
+    payload.update(task_success=True, tool_contract_audit=audit, report_audit=audit,
+        result=("graph_query.query_nodes 的两个筛选维度独立。\n"
+                "node_type 是可选层级筛选，仅支持 facility 或 target；不支持 node_type=area。"
+                "区域范围用 partition_id 指定精确 area ID，设施范围用 facility_id 指定精确设施 ID。"
+                "node_type=target 包含该层级的所有业务类别。\n"
+                "target_type_contains 是可选业务类别筛选，仅在明确要求类别时填写 allowed_target_types 中的一个完整类别码；"
+                "当前适配器按相等匹配，字段名 contains 不表示可做子串匹配。未要求类别或风险时留空。\n"
+                "limit 只截断返回列表，不改变完整 count；计数单位是已有标注记录。"
+                "来源：本地 graph_query 适配契约 0.1.0，2026-11-06核对。"))
+    return payload
 
 
 def _allowed_category(text: str, category: str) -> bool:
@@ -173,8 +220,8 @@ def constrained_graph_delivery(data: dict, runs: list[dict], *, user_text: str,
     """
     historical = bool(_HISTORY.search(user_text))
     if _tool_help_request(user_text):
-        return data
-    context = "\n".join([*(recent_user_texts or []), user_text]) if historical else user_text
+        return _query_parameter_help(data, user_text)
+    context = "\n".join([*(recent_user_texts or []), user_text]) if historical and not _complete_current_query(user_text) else user_text
     eligible = runs or (prior_runs or [] if historical else [])
     latest = eligible[-1] if eligible else {}
     evidence = latest.get("report_evidence", latest) if isinstance(latest, dict) else {}

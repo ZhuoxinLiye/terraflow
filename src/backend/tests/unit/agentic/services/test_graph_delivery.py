@@ -180,3 +180,68 @@ def test_single_query_ambiguity_report_does_not_require_search_graph():
     assert "requested_graph_operation_missing" not in result["graph_report_audit"]["reason_codes"]
     assert result["task_success"] is False and "ambiguous_name" in result["result"]
     assert "S-F1" in result["result"] and "S-F2" in result["result"]
+
+
+@pytest.mark.parametrize("negative", ["无需", "不要", "不必"])
+def test_explicitly_negated_extra_detail_and_search_are_not_required(negative):
+    text = f"{negative}这些节点或额外详情查询来完成本次单个query_nodes任务。{negative}搜索候选。"
+    assert _requested(text) == {"graph_query.query_nodes"}
+
+
+def test_positive_operation_after_negated_clause_remains_required():
+    assert _requested("不要搜索，但请读取图谱详情并query_nodes计数。") == {"graph_query.get_item", "graph_query.query_nodes"}
+
+
+@pytest.mark.parametrize("request_text", [
+    "继续本会话的原任务。无需这些节点或额外详情查询来完成本次单个query_nodes任务。原任务保持：facility_id=N003，node_type=target，target_type_contains=aviation_area，limit=1。",
+    "请在当前会话和当前工作流实际重跑query_nodes(facility_id=N003,node_type=target,target_type_contains=aviation_area,limit=1)，保留先前失败和本次实际运行记录。",
+    "实际执行query_nodes(facility_id=N003,node_type=target,target_type_contains=aviation_area,limit=1)，参数保持上述参数。",
+])
+def test_explicit_complete_current_query_does_not_inherit_old_extra_operations(request_text):
+    current = {"report_evidence": {"trusted_tool_nodes": TRUSTED, "node_results": [
+        {"node_id": "actual-query", "success": True, "outputs": output(count=0, returned_count=0, nodes=[], truncated=False,
+         filters_applied={"facility_id": "N003", "node_type": "target", "target_type_contains": "aviation_area"})}]}}
+    history = ["读取图谱详情并搜索候选，然后query_nodes计数。", "无需额外详情查询，只完成query_nodes。"]
+    result = constrained_graph_delivery({"result": "unverified 999"}, [current], user_text=request_text, recent_user_texts=history)
+    assert result["task_success"] is True
+    assert result["graph_report_audit"]["required_tools"] == ["graph_query.query_nodes"]
+
+
+def test_short_history_followup_preserves_original_three_operation_requirement():
+    result = constrained_graph_delivery({"result": "unverified 999"}, [], user_text="继续解释刚才图谱计数。",
+        recent_user_texts=["图谱get_item读取详情，query_nodes计数并search_graph查找。"],
+        prior_runs=[{"report_evidence": {"trusted_tool_nodes": TRUSTED, "node_results": [
+            {"node_id": "actual-query", "success": True, "outputs": output()}]}}])
+    assert result["task_success"] is False
+    assert set(result["graph_report_audit"]["required_tools"]) == {"graph_query.get_item", "graph_query.query_nodes", "graph_query.search_graph"}
+    assert "requested_graph_operation_missing" in result["graph_report_audit"]["reason_codes"]
+
+
+def test_actual_normal_tool_help_counterexample_uses_current_adapter_contract():
+    text = "项目里 query_nodes 的 node_type 和 target_type_contains 各筛选什么？请说明工具参数含义，不运行分析。"
+    model = {"result": "node_type支持facility/area/target，target_type_contains是子串匹配。"}
+    result = constrained_graph_delivery(model, [], user_text=text)
+    assert result["task_success"] is True and result["model_response_original"] == model["result"]
+    assert "仅支持 facility 或 target" in result["result"] and "不支持 node_type=area" in result["result"]
+    assert "partition_id" in result["result"] and "完整类别码" in result["result"] and "按相等匹配" in result["result"]
+    assert result["tool_contract_audit"]["source_commit"] == "3e49f1e"
+    assert result["tool_contract_audit"]["tool_execution_claimed"] is False
+    assert "graph_report_audit" not in result
+    assert model == {"result": "node_type支持facility/area/target，target_type_contains是子串匹配。"}
+
+
+@pytest.mark.parametrize("text", [
+    "请说明普通数据库node_type和target_type_contains字段的含义。",
+    "请解释get_item参数，不运行分析。",
+    "洪水监测中水体和洪水的含义有什么区别？",
+])
+def test_finite_query_parameter_contract_does_not_replace_other_help(text):
+    original = {"result": "ordinary help"}
+    assert constrained_graph_delivery(original, [], user_text=text) is original
+
+
+def test_query_parameter_words_do_not_bypass_actual_measurement_evidence():
+    result = constrained_graph_delivery({"result": "unverified count999"}, [],
+        user_text="实际执行图谱query_nodes，facility_id=N003,node_type=target，返回本次计数结果并说明target_type_contains参数含义。")
+    assert result["task_success"] is False and "999" not in result["result"]
+    assert "tool_contract_audit" not in result and "no_actual_graph_execution" in result["report_audit"]["reason_codes"]
