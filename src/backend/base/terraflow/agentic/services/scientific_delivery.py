@@ -72,7 +72,7 @@ def classify_scientific_request(text: str, user_history: list[str] | None = None
     area = _has(r"面积|平方|平方米|m[²2]|area|pixel|像元", topic_text)
     safety = _has(r"直升机|起降|适航|helicopter|landing|救援.*安全|安全.*救援", topic_text)
     water = _has(r"水体|水掩膜|水.*分割|water|flood|淹没|洪水", topic_text)
-    conceptual = _has(r"能否|是否|可以|能.*吗|说明|解释|意味着|等于|认定|足以|依据|区别|直接|can\b|does\b|why|explain|mean|enough|sufficient", current)
+    conceptual = _has(r"能否|是否|是不是|能不能|可不可以|可以|能.*吗|说明|解释|意味着|等于|认定|足以|依据|区别|直接|can\b|does\b|why|explain|mean|enough|sufficient", current)
     positive_actions = re.sub(r"(?:不要|不得|禁止|无需|不|别)(?:重新|再)?(?:计算|测量|估算|执行|运行|重跑)|\b(?:do not|don't|never)\s+(?:run|execute|calculate|measure)\b", "", current, flags=re.I)
     operation = _has(r"调用|执行|运行|查询|查找|检索|读取|列出|筛选|选择|计算|测量|估算|给出.*结果|run\b|execute|query|search|read\b|list\b|select|calculate|measure|estimate", positive_actions)
     code_or_flow_edit = _has(r"(?:创建|编写|修改|配置|生成|搭建).{0,20}(?:组件|代码|工作流|流程)|(?:create|write|edit|configure|build).{0,30}(?:component|code|workflow)", current)

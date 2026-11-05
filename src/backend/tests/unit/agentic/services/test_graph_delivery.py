@@ -3,7 +3,7 @@ import copy
 
 import pytest
 
-from terraflow.agentic.services.graph_delivery import constrained_graph_delivery
+from terraflow.agentic.services.graph_delivery import _requested, constrained_graph_delivery
 
 
 SHA = "a" * 64
@@ -160,3 +160,23 @@ def test_specific_graph_result_explanation_is_not_plain_tool_help():
     result = constrained_graph_delivery({"result": "unverified count999"}, [], user_text="请解释图谱设施 N003 的计数结果含义。")
     assert result["task_success"] is False and "999" not in result["result"]
     assert "no_actual_graph_execution" in result["report_audit"]["reason_codes"]
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("真实调用query_nodes，读取重名错误候选。", {"graph_query.query_nodes"}),
+    ("报告get_item重名候选ID。", {"graph_query.get_item"}),
+    ("请主动查找图谱候选ID。", {"graph_query.search_graph"}),
+    ("搜索图谱重名候选，然后query_nodes计数。", {"graph_query.search_graph", "graph_query.query_nodes"}),
+])
+def test_returned_ambiguity_candidates_do_not_imply_additional_search(text, expected):
+    assert _requested(text) == expected
+
+
+def test_single_query_ambiguity_report_does_not_require_search_graph():
+    out = output(success=False, ok=False, execution_blocked=True, reason_code="ambiguous_name",
+                 error={"code": "ambiguous_name", "candidates": [{"id": "S-F1"}, {"id": "S-F2"}]})
+    result = deliver(out, request="请真实调用图谱query_nodes，读取重名错误候选。")
+    assert result["graph_report_audit"]["required_tools"] == ["graph_query.query_nodes"]
+    assert "requested_graph_operation_missing" not in result["graph_report_audit"]["reason_codes"]
+    assert result["task_success"] is False and "ambiguous_name" in result["result"]
+    assert "S-F1" in result["result"] and "S-F2" in result["result"]

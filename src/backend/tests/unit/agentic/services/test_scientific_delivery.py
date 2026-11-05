@@ -18,6 +18,9 @@ from terraflow.agentic.services.project_boundaries import budget_tools, trusted_
     ("经纬度栅格面积为什么不能直接平方？", "angular_area"),
     ("Can degree pixels be converted directly to area in m2?", "angular_area"),
     ("单张水体分割掩膜能认定洪水新增淹没吗？", "water_inference"),
+    ("分类结果里蓝色像元就是积水。本次只分析这一期，没有历史对照。是不是都能写成此次洪水新增淹没？", "water_inference"),
+    ("只有这一期水体结果，能不能认定新增淹没？", "water_inference"),
+    ("没有历史对照的水体范围，可不可以写成洪水新增淹没？", "water_inference"),
     ("水库放水造成水体变化是否一律不是洪水？", "water_inference"),
     ("Does a water mask mean new flood inundation?", "water_inference"),
     ("公园面积很大距离很近，可以安全起降吗？", "site_safety"),
@@ -129,10 +132,16 @@ def test_malformed_code_fields_are_untrusted_without_exception(field):
 @pytest.mark.parametrize("text", [
     "请按画布已选数据调用水体工具计算新增面积", "给定经纬度角点，请计算像元面积",
     "可以调用水体工具帮我测量当前输入的面积吗？", "能否帮我计算选定水体数据面积？",
+    "能不能计算本次水体面积？", "可不可以调用水体工具计算本次面积？",
 ])
 def test_requested_measurement_is_operational_even_as_polite_question(text):
     request = classify_scientific_request(text)
     assert request.topic == "measurement" and not request.conceptual
+
+
+def test_polite_measurement_without_domain_word_still_reaches_operational_agent():
+    request = classify_scientific_request("能不能计算本次面积")
+    assert request.topic is None and not request.conceptual
 
 
 MODULE = "terraflow.agentic.services.assistant_service"
@@ -181,7 +190,8 @@ async def test_actual_measurement_task_uses_agent_tool_but_no_raw_token_leaks(mo
     assert result["task_success"] is False
 
 
-async def test_normal_project_operation_still_reaches_agent_and_tool(monkeypatch):
+@pytest.mark.parametrize("user_text", ["读取项目数据目录的元数据", "能不能计算本次面积"])
+async def test_normal_project_operation_still_reaches_agent_and_tool(monkeypatch, user_text):
     from terraflow.agentic.services.flow_types import IntentResult
     monkeypatch.setenv("TERRAFLOW_ASSISTANT_PROFILE", "geo")
     executed = []
@@ -196,7 +206,7 @@ async def test_normal_project_operation_still_reaches_agent_and_tool(monkeypatch
         yield "end", {"result": "项目元数据读取完成"}
 
     with patch(f"{MODULE}.classify_intent", new_callable=AsyncMock, return_value=IntentResult(intent="question", translation="read")), patch(f"{MODULE}._get_current_flow_summary", new_callable=AsyncMock, return_value=None), patch(f"{MODULE}.execute_flow_file_streaming", side_effect=execution):
-        events = await collect_stream("读取项目数据目录的元数据")
+        events = await collect_stream(user_text)
     assert executed == [True]
     assert events[-1]["data"]["result"] == "项目元数据读取完成"
 

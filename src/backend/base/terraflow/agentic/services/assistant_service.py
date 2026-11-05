@@ -658,6 +658,7 @@ async def execute_flow_with_validation_streaming(
     )
 
     scientific_request = ScientificRequest()
+    scene_lookup_requested = False
     recent_user_texts: list[str] = []
     prior_runs: list[dict] = []
     from terraflow.agentic.services.project_boundaries import (
@@ -721,12 +722,15 @@ async def execute_flow_with_validation_streaming(
             selected_runs = scientific_runs or (prior_runs if scientific_request.historical else [])
             from terraflow.agentic.services.graph_delivery import constrained_graph_delivery
 
-            if not scientific_request.conceptual and data.get("delivery_contract", {}).get("kind") != "scene_inspection":
+            trusted_scene_delivery = trusted_delivery and data.get("delivery_contract", {}).get("kind") == "scene_inspection"
+            if not scientific_request.conceptual and not trusted_scene_delivery:
                 data = constrained_graph_delivery(
                     data, scientific_runs, user_text=sanitization.sanitized_input,
                     recent_user_texts=recent_user_texts, prior_runs=prior_runs,
                 )
-            if data.get("report_audit", {}).get("mode") == "evidence_bound_renderer" and scientific_request.topic == "measurement":
+            if trusted_scene_delivery:
+                pass  # Server-read scene metadata/history is the requested evidence contract.
+            elif data.get("report_audit", {}).get("mode") == "evidence_bound_renderer" and scientific_request.topic == "measurement":
                 data["delivery_contract"] = {"version": "earthmind-scientific-delivery-v1", "kind": "audited_measurement"}
                 data["task_success"] = data["report_audit"]["passed"]
             else:
@@ -770,10 +774,13 @@ async def execute_flow_with_validation_streaming(
     recent_turns = get_conversation_buffer().get_recent(user_id, session_id) if user_id and session_id else []
     recent_user_texts = [turn.user for turn in recent_turns]
     if geo_profile():
+        from terraflow.agentic.services.scene_evidence import scene_inspection_requested
+
+        scene_lookup_requested = scene_inspection_requested(current_input, recent_user_texts)
         scientific_request = classify_scientific_request(current_input, recent_user_texts)
         prior_runs = previous_runs(user_id, session_id, global_variables.get("FLOW_ID"))
         scientific_request = historical_measurement_request(current_input, scientific_request, prior_runs)
-        if scientific_request.topic == "measurement" and scientific_request.historical and scientific_execution_forbidden(current_input):
+        if not scene_lookup_requested and scientific_request.topic == "measurement" and scientific_request.historical and scientific_execution_forbidden(current_input):
             # A historical no-rerun measurement reads typed prior receipts only;
             # it cannot create a new run even if a classifier/model requests one.
             event = _complete({"result": ""}, trusted_delivery=True)
@@ -781,7 +788,7 @@ async def execute_flow_with_validation_streaming(
                                      user_input=current_input, assistant_response=final_response_text)
             yield event
             return
-        if scientific_request.conceptual and not (
+        if not scene_lookup_requested and scientific_request.conceptual and not (
             scientific_request.topic == "missing_measurement" and (global_variables.get("FLOW_ID") or prior_runs)
         ):
             delivery = clarification(scientific_request)
@@ -804,7 +811,7 @@ async def execute_flow_with_validation_streaming(
     # prefix — it must never be read twice (extra DB round-trip).
     current_flow_summary = await _get_current_flow_summary(global_variables.get("FLOW_ID"), user_id=user_id)
 
-    if geo_profile() and scientific_request.topic == "missing_measurement":
+    if geo_profile() and not scene_lookup_requested and scientific_request.topic == "missing_measurement":
         working = get_working_flow() or {}
         selected_nodes = (working.get("data") or {}).get("nodes") or []
         if selected_nodes or prior_runs:
@@ -821,9 +828,9 @@ async def execute_flow_with_validation_streaming(
             return
 
     if geo_profile():
-        from terraflow.agentic.services.scene_evidence import load_scene_builds, render_scene_evidence, scene_inspection_requested
+        from terraflow.agentic.services.scene_evidence import load_scene_builds, render_scene_evidence
 
-        if scene_inspection_requested(current_input, recent_user_texts):
+        if scene_lookup_requested:
             from lfx.components.geo_workflow.scene_input import read_scene_index
 
             history_error = False

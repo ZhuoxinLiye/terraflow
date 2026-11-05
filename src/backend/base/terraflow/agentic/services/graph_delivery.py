@@ -46,7 +46,9 @@ def _requested(text: str) -> set[str]:
         ops.add("graph_query.get_item")
     if re.search(r"计数|多少|统计|总数|query_nodes|\bcount\b|全部(?:目标|target)", text, re.I):
         ops.add("graph_query.query_nodes")
-    if re.search(r"查找|搜索|候选|search_graph|matched_fields|lookup", text, re.I):
+    # Error/ambiguity outputs already include candidates; mentioning those
+    # candidates does not request another search operation.
+    if re.search(r"查找|搜索|search_graph|matched_fields|lookup", text, re.I):
         ops.add("graph_query.search_graph")
     return ops
 
