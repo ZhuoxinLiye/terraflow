@@ -16,6 +16,13 @@ VERSION = "earthmind-scientific-delivery-v1"
 SUPPORTED_AREA_METHOD = "affine_pixel_area_with_projected_crs_unit_conversion"
 
 CARDS = {
+    "nodata_zero": (
+        "nodata 表示缺失或无效观测，须按产品元数据和有效性掩膜处理，统计时从有效区排除，"
+        "不等于合法的零结果。在合法作用域和有效输入下，工具成功查询得到总数 0，"
+        "或得到统计值 0，可以是成功结果；仍须核对实际作用域、输入和工具状态。"
+        "不能把缺测、工具错误或无效作用域说成 0。像元数值 0 是否有效，取决于有效性掩膜"
+        "和产品或类别语义，不能凭直方图或物理猜测判定。这里只解释概念，没有查询、统计或运行流程。"
+    ),
     "angular_area": (
         "经纬度网格的角度单位不能直接当作平方米。像元的平方米面积需要实际位置、"
         "像元边界和坐标参考信息，由适当投影或椭球大地测量工具计算。"
@@ -73,11 +80,24 @@ def classify_scientific_request(text: str, user_history: list[str] | None = None
     safety = _has(r"直升机|起降|适航|helicopter|landing|救援.*安全|安全.*救援", topic_text)
     water = _has(r"水体|水掩膜|水.*分割|water|flood|淹没|洪水", topic_text)
     conceptual = _has(r"能否|是否|是不是|能不能|可不可以|可以|能.*吗|说明|解释|意味着|等于|认定|足以|依据|区别|直接|can\b|does\b|why|explain|mean|enough|sufficient", current)
-    positive_actions = re.sub(r"(?:不要|不得|禁止|无需|不|别)(?:重新|再)?(?:计算|测量|估算|执行|运行|重跑)|\b(?:do not|don't|never)\s+(?:run|execute|calculate|measure)\b", "", current, flags=re.I)
+    # Negation can cover coordinated acts, as in "不创建或运行流程".
+    # Strip only the coordinated verb phrase, never a later positive clause.
+    acts_zh = r"(?:创建|编写|修改|配置|生成|搭建|调用|执行|运行|查询|查找|检索|读取|列出|筛选|选择|计算|测量|估算|重跑)"
+    acts_en = r"(?:create|write|edit|configure|build|run|execute|query|search|read|list|select|calculate|measure|estimate)"
+    positive_actions = re.sub(
+        rf"(?:不要|不得|禁止|无需|不|别)(?:重新|再)?{acts_zh}(?:\s*(?:或|和|与|及|、|/)\s*(?:重新|再)?{acts_zh})*"
+        rf"|\b(?:do not|don't|never)\s+{acts_en}(?:\s+(?:or|and)\s+{acts_en})*\b",
+        "", current, flags=re.I,
+    )
     operation = _has(r"调用|执行|运行|查询|查找|检索|读取|列出|筛选|选择|计算|测量|估算|给出.*结果|run\b|execute|query|search|read\b|list\b|select|calculate|measure|estimate", positive_actions)
-    code_or_flow_edit = _has(r"(?:创建|编写|修改|配置|生成|搭建).{0,20}(?:组件|代码|工作流|流程)|(?:create|write|edit|configure|build).{0,30}(?:component|code|workflow)", current)
+    code_or_flow_edit = _has(r"(?:创建|编写|修改|配置|生成|搭建).{0,20}(?:组件|代码|工作流|流程)|(?:create|write|edit|configure|build).{0,30}(?:component|code|workflow)", positive_actions)
     if code_or_flow_edit and not _has(r"执行|运行|\brun\b|execute", positive_actions):
         return ScientificRequest()
+    nodata = _has(r"\bnodata\b|\bno[\s_-]+data\b", current)
+    zero = _has(r"零|\bzero\b|(?<![\dA-Za-z.])0(?![\dA-Za-z.])", current)
+    parameter_help = _has(r"参数|字段|schema|\bAPI\b|组件|代码|\bcomponent\b|\bcode\b", positive_actions)
+    if nodata and zero and conceptual and not operation and not code_or_flow_edit and not parameter_help:
+        return ScientificRequest("nodata_zero", True, historical)
     no_input = _has(r"(?:没有|未|没)(?:提供|给|有|上传|选择).{0,20}(?:数据|影像|掩膜|路径|结果)|no (?:data|imagery|images|mask|measurement)|先报.{0,20}(?:补|证)|before.{0,20}evidence", current)
     topic = "site_safety" if safety else "angular_area" if angular and area else "water_inference" if water else None
     if topic is None:
@@ -100,7 +120,7 @@ def classify_scientific_request(text: str, user_history: list[str] | None = None
 
 def scientific_execution_forbidden(text: str) -> bool:
     """Explicit no-rerun requests also apply to short historical follow-ups."""
-    return _has(r"(?:不|不要|不得|禁止|无需|别)(?:修改或)?(?:重新|再)?(?:执行|运行|重跑)|\b(?:do not|don't|never|without)\s+(?:re-?running|run|execute|rerun)\b", text)
+    return _has(r"(?:不|不要|不得|禁止|无需|别)(?:(?:修改|创建)\s*(?:或|和|及)\s*)?(?:重新|再)?(?:执行|运行|重跑)|\b(?:do not|don't|never|without)\s+(?:(?:create|edit)\s+(?:or|and)\s+)?(?:re-?running|run|execute|rerun)\b", text)
 
 
 def clarification(request: ScientificRequest, *, raw: str = "") -> dict:

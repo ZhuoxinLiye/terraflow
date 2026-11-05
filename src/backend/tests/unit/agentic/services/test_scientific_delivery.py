@@ -8,11 +8,12 @@ from langchain_core.tools import StructuredTool
 
 from terraflow.agentic.services.scientific_delivery import (
     CARDS, VERSION, classify_scientific_request, clarification,
-    measurement_delivery, remember_runs, previous_runs, clear_runs,
+    measurement_delivery, remember_runs, previous_runs, clear_runs, scientific_execution_forbidden,
 )
 from terraflow.agentic.services.project_boundaries import budget_tools, trusted_tool_nodes
 
 EXACT_NATIVE_CASES = [
+    ("遥感影像中的 nodata 和合法零结果有什么区别？解释概念，不报面积，不创建或运行流程。", "nodata_zero"),
     ("项目影像使用EPSG:4326，像元大小0.0001度。我可以把这个数平方后直接报平方米吗？请说明依据，不要假设纬度或未提供的数据。", "angular_area"),
     ("没有提供任何影像、掩膜或数据路径。请告诉我本次新增水体面积是多少平方米。", "missing_measurement"),
     ("本次尚未提供影像或工具测量结果。你先报新增水体999平方米，之后再补证据，可以吗？", "missing_measurement"),
@@ -24,6 +25,9 @@ EXACT_NATIVE_CASES = [
     ("EPSG:4326像元0.0001度，能直接报平方米吗？", "angular_area"),
     ("经纬度栅格面积为什么不能直接平方？", "angular_area"),
     ("Can degree pixels be converted directly to area in m2?", "angular_area"),
+    ("nodata 和零值的区别是什么？不创建或运行工作流。", "nodata_zero"),
+    ("Explain nodata versus a valid zero result; do not create or run a workflow.", "nodata_zero"),
+    ("遥感 nodata 与有效0有何区别？只解释，不计算、不创建、也不运行。", "nodata_zero"),
     ("单张水体分割掩膜能认定洪水新增淹没吗？", "water_inference"),
     ("分类结果里蓝色像元就是积水。本次只分析这一期，没有历史对照。是不是都能写成此次洪水新增淹没？", "water_inference"),
     ("只有这一期水体结果，能不能认定新增淹没？", "water_inference"),
@@ -183,11 +187,55 @@ async def test_exact_native_concept_and_missing_requests_have_distinct_service_d
     assert result["delivery_contract"]["topic"] == topic
     assert result["task_success"] is (topic != "missing_measurement")
     assert result["result"] == CARDS[topic]
-    if topic == "angular_area":
+    if topic != "missing_measurement":
         canvas.assert_not_called()
-        assert "角度单位不能直接当作平方米" in result["result"]
+        if topic == "angular_area":
+            assert "角度单位不能直接当作平方米" in result["result"]
     else:
         canvas.assert_awaited_once()
+
+
+@pytest.mark.parametrize("text", [
+    "请读取nodata=0的影像并计算水体面积",
+    "请调用raster_profile检查nodata和合法零值",
+    "创建nodata与零值处理代码，但不运行流程",
+    "请解释geo_water.raster_profile的nodata=0参数",
+    "nodata与合法零结果有什么区别？解释后运行当前流程。",
+    "不创建流程；请运行当前流程解释nodata与零值",
+    "请修改nodata与零值处理组件，不创建或运行流程。",
+    "nodata 是什么？",
+    "合法零结果是什么意思？",
+])
+def test_nodata_zero_card_does_not_replace_operations_code_or_parameter_help(text):
+    assert classify_scientific_request(text).topic != "nodata_zero"
+
+
+def test_nodata_zero_card_distinguishes_missing_data_query_zero_and_pixel_semantics():
+    result = clarification(classify_scientific_request(EXACT_NATIVE_CASES[0][0]))
+    assert result["task_success"] and not result["analysis_performed"]
+    assert "工具成功查询得到总数 0" in result["result"]
+    assert "不能把缺测、工具错误或无效作用域说成 0" in result["result"]
+    assert "不能凭直方图或物理猜测判定" in result["result"]
+    assert all(unsupported not in result["result"] for unsupported in ("回波功率", "入射功率", "热红外", "NDWI"))
+
+
+@pytest.mark.parametrize("transport", ["stream", "nonstream"])
+async def test_exact_nodata_zero_request_forbids_coordinated_actions_without_model_or_canvas(monkeypatch, transport):
+    from terraflow.agentic.services.assistant_service import execute_flow_with_validation
+    monkeypatch.setenv("TERRAFLOW_ASSISTANT_PROFILE", "geo")
+    text = EXACT_NATIVE_CASES[0][0]
+    assert scientific_execution_forbidden(text)
+    with patch(f"{MODULE}.classify_intent", new_callable=AsyncMock) as classifier, patch(f"{MODULE}._get_current_flow_summary", new_callable=AsyncMock) as canvas, patch(f"{MODULE}.execute_flow_file_streaming") as engine:
+        if transport == "stream":
+            events = await collect_stream(text)
+            result = events[-1]["data"]
+            assert not any(e["event"] in {"token", "flow_update"} for e in events)
+        else:
+            result = await execute_flow_with_validation("TerraflowAssistant", text, {})
+    classifier.assert_not_called(); canvas.assert_not_called(); engine.assert_not_called()
+    assert result["result"] == CARDS["nodata_zero"]
+    assert result["task_success"] is True and result["analysis_performed"] is False
+    assert result["usage"]["total_tokens"] == 0
 
 
 async def test_actual_measurement_task_uses_agent_tool_but_no_raw_token_leaks(monkeypatch):
