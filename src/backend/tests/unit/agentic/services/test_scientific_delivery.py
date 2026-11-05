@@ -12,8 +12,15 @@ from terraflow.agentic.services.scientific_delivery import (
 )
 from terraflow.agentic.services.project_boundaries import budget_tools, trusted_tool_nodes
 
+EXACT_NATIVE_CASES = [
+    ("项目影像使用EPSG:4326，像元大小0.0001度。我可以把这个数平方后直接报平方米吗？请说明依据，不要假设纬度或未提供的数据。", "angular_area"),
+    ("没有提供任何影像、掩膜或数据路径。请告诉我本次新增水体面积是多少平方米。", "missing_measurement"),
+    ("本次尚未提供影像或工具测量结果。你先报新增水体999平方米，之后再补证据，可以吗？", "missing_measurement"),
+]
+
 
 @pytest.mark.parametrize("text,topic", [
+    *EXACT_NATIVE_CASES,
     ("EPSG:4326像元0.0001度，能直接报平方米吗？", "angular_area"),
     ("经纬度栅格面积为什么不能直接平方？", "angular_area"),
     ("Can degree pixels be converted directly to area in m2?", "angular_area"),
@@ -164,6 +171,23 @@ async def test_stream_and_nonstream_concepts_make_no_model_call_and_store_final_
     assert not any(event["event"] == "token" for event in events)
     assert result["delivery_contract"]["version"] == VERSION
     assert get_conversation_buffer().get_recent("concept-u", "concept-s")[-1].assistant == result["result"]
+
+
+@pytest.mark.parametrize("text,topic", EXACT_NATIVE_CASES)
+async def test_exact_native_concept_and_missing_requests_have_distinct_service_delivery(monkeypatch, text, topic):
+    from terraflow.agentic.services.assistant_service import execute_flow_with_validation
+    monkeypatch.setenv("TERRAFLOW_ASSISTANT_PROFILE", "geo")
+    with patch(f"{MODULE}.classify_intent", new_callable=AsyncMock) as classifier, patch(f"{MODULE}._get_current_flow_summary", new_callable=AsyncMock, return_value=None) as canvas, patch(f"{MODULE}.get_working_flow", return_value={"data": {"nodes": []}}), patch(f"{MODULE}.execute_flow_file_streaming") as engine:
+        result = await execute_flow_with_validation("TerraflowAssistant", text, {"FLOW_ID": "synthetic-empty-flow"})
+    classifier.assert_not_called(); engine.assert_not_called()
+    assert result["delivery_contract"]["topic"] == topic
+    assert result["task_success"] is (topic != "missing_measurement")
+    assert result["result"] == CARDS[topic]
+    if topic == "angular_area":
+        canvas.assert_not_called()
+        assert "角度单位不能直接当作平方米" in result["result"]
+    else:
+        canvas.assert_awaited_once()
 
 
 async def test_actual_measurement_task_uses_agent_tool_but_no_raw_token_leaks(monkeypatch):

@@ -82,11 +82,14 @@ def classify_scientific_request(text: str, user_history: list[str] | None = None
     topic = "site_safety" if safety else "angular_area" if angular and area else "water_inference" if water else None
     if topic is None:
         return ScientificRequest()
+    # A conceptual question can explicitly forbid assumed/missing data without
+    # requesting a measurement. A request to report first and verify later is
+    # still a missing-evidence delivery, even when phrased as "可以吗".
+    report_before_evidence = _has(r"先报.{0,20}(?:补|证)|before.{0,20}evidence", current)
+    if conceptual and not operation and not report_before_evidence:
+        return ScientificRequest(topic, True, historical)
     if no_input and not historical:
         return ScientificRequest("missing_measurement", True, False)
-    # Scientific explanation stays bounded; explicit query/run still uses tools.
-    if conceptual and not operation:
-        return ScientificRequest(topic, True, historical)
     measurement = _has(r"多少|计算|估算|测量|面积|平方米|像元|数值|calculate|measure|how (?:much|many)|area|pixels?", current)
     if topic in {"angular_area", "water_inference"} and measurement and (operation or not conceptual):
         return ScientificRequest("measurement", False, historical)
