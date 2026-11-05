@@ -47,12 +47,27 @@ def test_no_edges_does_not_erase_own_historical_output_and_metadata_is_data():
     assert "已有自身成功执行记录 1 条" in result["result"]
 
 
-async def test_no_run_scene_request_reads_real_index_and_history_path_without_agent(monkeypatch):
-    from terraflow.agentic.services.assistant_service import execute_flow_with_validation
+@pytest.mark.parametrize("text", [
+    "读取SceneInput节点来源和已有输出，不要修改或重新运行流程。",
+    "请解释水体SceneInput来源是否合成。",
+    "请读取SceneInput的metadata和Trace说明来源；不推断洪水面积，不要修改或重新运行流程。",
+])
+@pytest.mark.parametrize("transport", ["stream", "nonstream"])
+async def test_no_run_scene_request_reads_real_index_and_history_path_without_agent(monkeypatch, text, transport):
+    from terraflow.agentic.services.assistant_service import execute_flow_with_validation, execute_flow_with_validation_streaming, clear_session_history
     monkeypatch.setenv("TERRAFLOW_ASSISTANT_PROFILE", "geo")
-    with patch("terraflow.agentic.services.assistant_service._get_current_flow_summary", new_callable=AsyncMock, return_value="scene"), patch("terraflow.agentic.services.assistant_service.get_working_flow", return_value=flow()), patch("terraflow.agentic.services.scene_evidence.load_scene_builds", new_callable=AsyncMock, return_value=[{"id": "scene-self", "valid": True, "data": {"metadata": {"category": "synthetic"}}}]) as builds, patch("lfx.components.geo_workflow.scene_input.read_scene_index", return_value={"test.before": {"category": "synthetic", "path": "/test.tif"}}), patch("terraflow.agentic.services.assistant_service.classify_intent", new_callable=AsyncMock) as classifier:
-        result = await execute_flow_with_validation("TerraflowAssistant", "读取SceneInput节点来源和已有输出，不要修改或重新运行流程。", {"FLOW_ID": "synthetic-flow"}, user_id="u", session_id="s")
+    clear_session_history("u", "s")
+    with patch("terraflow.agentic.services.assistant_service._get_current_flow_summary", new_callable=AsyncMock, return_value="scene") as canvas, patch("terraflow.agentic.services.assistant_service.get_working_flow", return_value=flow()), patch("terraflow.agentic.services.scene_evidence.load_scene_builds", new_callable=AsyncMock, return_value=[{"id": "scene-self", "valid": True, "data": {"metadata": {"category": "synthetic"}}}]) as builds, patch("lfx.components.geo_workflow.scene_input.read_scene_index", return_value={"test.before": {"category": "synthetic", "path": "/test.tif"}}), patch("terraflow.agentic.services.assistant_service.classify_intent", new_callable=AsyncMock) as classifier, patch("terraflow.agentic.services.assistant_service.execute_flow_file_streaming") as engine, patch("terraflow.agentic.services.flow_run.run_working_flow", new_callable=AsyncMock) as run:
+        if transport == "stream":
+            events = [json.loads(e[5:]) async for e in execute_flow_with_validation_streaming("TerraflowAssistant", text, {"FLOW_ID": "synthetic-flow"}, user_id="u", session_id="s")]
+            assert not any(e["event"] == "token" or e.get("action") == "run_result" for e in events)
+            result = events[-1]["data"]
+        else:
+            result = await execute_flow_with_validation("TerraflowAssistant", text, {"FLOW_ID": "synthetic-flow"}, user_id="u", session_id="s")
+    canvas.assert_awaited_once(); engine.assert_not_called(); run.assert_not_called()
     builds.assert_awaited_once(); classifier.assert_not_called()
     assert result["task_success"] is True
+    assert result["delivery_contract"]["kind"] == "scene_inspection"
+    assert "暂不交付数值" not in result["result"]
     assert result["scene_evidence"][0]["own_successful_build_records"] == 1
     assert result["scene_evidence"][0]["synthetic_from_explicit_metadata"] is True
