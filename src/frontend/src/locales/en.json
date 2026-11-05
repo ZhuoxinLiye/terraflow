@@ -2080,6 +2080,8 @@
   "app.widgets.documentUnavailable": "Document unavailable",
   "app.widgets.spreadsheetUnavailable": "Spreadsheet unavailable",
   "app.widgets.mapUnavailable": "Map preview unavailable for this file — download to view.",
+  "app.widgets.showBasemap": "Show online basemap",
+  "app.widgets.basemapUnavailable": "Basemap unavailable. Input geometry remains visible.",
   "app.widgets.meshUnavailable": "3D preview unavailable for this file — download to view.",
   "app.widgets.pointcloudUnavailable": "Point cloud preview unavailable — download to view.",
   "app.widgets.gsUnavailable": "3D Gaussian Splat preview unavailable — download to view.",

@@ -2072,6 +2072,8 @@
   "app.widgets.runHistory": "运行记录",
   "app.widgets.historyHint": "输出标签展示当前会话结果；重新打开后，请在“运行记录”中选择历史运行查看已保存输出。",
   "app.chat.show": "显示对话",
+  "app.widgets.showBasemap": "显示在线底图",
+  "app.widgets.basemapUnavailable": "在线底图暂不可用，仍显示输入几何。",
   "app.widgets.emptyTitle": "暂无组件",
   "app.widgets.emptyDescription": "与工作流输出绑定的可视化组件将显示在这里。",
   "app.widgets.projectFilesTitle": "项目文件",

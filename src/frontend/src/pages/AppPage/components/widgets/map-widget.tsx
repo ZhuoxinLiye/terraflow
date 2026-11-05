@@ -32,6 +32,19 @@ const OSM_STYLE: any = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
+// A local GeoJSON preview must work before (and without) external tiles.
+const GEOMETRY_STYLE = {
+  version: 8 as const,
+  sources: {},
+  layers: [
+    {
+      id: "background",
+      type: "background" as const,
+      paint: { "background-color": "#f1f5f9" },
+    },
+  ],
+};
+
 function collectCoordinates(coords: unknown, out: [number, number][]): void {
   if (
     Array.isArray(coords) &&
@@ -67,12 +80,20 @@ function boundsOf(geojson: GeoJsonLike): LngLatBoundsLike | null {
 }
 
 function MapCanvas({ geojson }: { geojson: GeoJsonLike }) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [showBasemap, setShowBasemap] = useState(false);
+  const [basemapFailed, setBasemapFailed] = useState(false);
+  const [geometryReady, setGeometryReady] = useState(false);
+  const [renderedFeatures, setRenderedFeatures] = useState(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
     let map: import("maplibre-gl").Map | undefined;
     let cancelled = false;
+    setGeometryReady(false);
+    setRenderedFeatures(0);
+    setBasemapFailed(false);
 
     // Dynamically imported (like mammoth/xlsx in the docx/spreadsheet
     // widgets) so this ~800KB dependency only ships to a client that
@@ -81,15 +102,17 @@ function MapCanvas({ geojson }: { geojson: GeoJsonLike }) {
       if (cancelled || !containerRef.current) return;
       map = new MapLibreMap({
         container: containerRef.current,
-        style: OSM_STYLE,
+        style: showBasemap ? OSM_STYLE : GEOMETRY_STYLE,
         center: [0, 0],
         zoom: 1,
         attributionControl: false,
       });
       map.addControl(new AttributionControl(), "bottom-right");
 
-      map.on("load", () => {
-        if (!map) return;
+      // `load` also waits for visible raster tiles. Attach the input geometry
+      // when the style is ready so a failed basemap cannot hide valid data.
+      map.on("style.load", () => {
+        if (cancelled || !map) return;
         // GeoJsonLike is intentionally loose (arbitrary tool output, not a validated
         // GeoJSON.GeoJSON); maplibre only reads .type/.features/.geometry at runtime.
         map.addSource("widget-data", {
@@ -123,15 +146,62 @@ function MapCanvas({ geojson }: { geojson: GeoJsonLike }) {
           map.fitBounds(bounds, { padding: 24, maxZoom: 14, duration: 0 });
         }
       });
+      map.on("error", (event) => {
+        if (cancelled || !showBasemap) return;
+        const isBasemapError =
+          ("sourceId" in event && event.sourceId === "osm") ||
+          event.error?.message.includes("tile.openstreetmap.org");
+        if (isBasemapError) setBasemapFailed(true);
+      });
+      map.on("render", () => {
+        if (
+          cancelled ||
+          !map?.getSource("widget-data") ||
+          !map.isSourceLoaded("widget-data")
+        )
+          return;
+        setGeometryReady(true);
+        setRenderedFeatures(
+          map.queryRenderedFeatures(undefined, {
+            layers: ["widget-polygons", "widget-lines", "widget-points"],
+          }).length,
+        );
+      });
     });
 
     return () => {
       cancelled = true;
       map?.remove();
     };
-  }, [geojson]);
+  }, [geojson, showBasemap]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        data-testid="map-widget-canvas"
+        data-geometry-ready={geometryReady}
+        data-rendered-feature-count={renderedFeatures}
+      />
+      <label className="absolute left-2 top-2 z-10 flex items-center gap-2 rounded bg-background/95 px-3 py-2 text-xs shadow">
+        <input
+          type="checkbox"
+          checked={showBasemap}
+          onChange={(event) => setShowBasemap(event.target.checked)}
+        />
+        {t("app.widgets.showBasemap")}
+      </label>
+      {basemapFailed && (
+        <p
+          role="status"
+          className="absolute bottom-2 left-2 z-10 rounded bg-background/95 px-3 py-2 text-xs shadow"
+        >
+          {t("app.widgets.basemapUnavailable")}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
