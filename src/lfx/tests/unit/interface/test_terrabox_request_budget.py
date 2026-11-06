@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import requests
+import pytest
 from lfx.interface.earthflow_terrabox import REQUEST_BUDGET_HOOK_SOURCE, TerraboxToolSpec, build_terrabox_component_source, scientific_precondition_error
 from terraflow.agentic.services.project_boundaries import ToolBudget, prepare_terrabox_budget_payload, request_tool_budget
 
@@ -103,3 +104,18 @@ async def test_legacy_current_and_custom_source_treatment_without_double_charge(
             assert budget.used == 1
         finally:
             request_tool_budget.reset(token)
+
+
+@pytest.mark.parametrize('declared,expected', [(7500, 7500), (True, 60), (-1, 60), ('7500', 60)])
+def test_generated_timeout_follows_bounded_tool_contract(declared, expected):
+    """A long-running remote tool must not silently inherit a 60-second timeout."""
+    source = build_terrabox_component_source(TerraboxToolSpec('segearth.detect', 'Synthetic', '', {
+        'type': 'object', 'properties': {}, 'x-request-timeout-seconds': declared}))
+    assert f'value={expected}, advanced=True)' in source
+    execute = generated_execute('segearth.detect', source_override=source)
+    response = Mock()
+    response.json.return_value = {'success': True}
+    with patch('requests.post', return_value=response) as post:
+        assert execute()['success']
+        assert post.call_args.kwargs['timeout'] == expected
+        assert post.call_count == 1

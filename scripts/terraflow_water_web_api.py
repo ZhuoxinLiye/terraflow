@@ -1076,6 +1076,8 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/")
         if path != "/api/water-demo/health" and not self._authorized():
             return
+        if DETECTION.get(self, path, parsed.query):
+            return
         if path == "/api/water-demo/health":
             with _JOB_LOCK:
                 active = _ACTIVE_JOB_ID
@@ -1245,6 +1247,8 @@ class Handler(BaseHTTPRequestHandler):
         if not self._authorized():
             return
         path = urlsplit(self.path).path.rstrip("/")
+        if DETECTION.post(self, path, urlsplit(self.path).query):
+            return
         parts = [unquote(part) for part in path.split("/") if part]
         if path == "/api/water-demo/conversations":
             payload = self._read_json_body() or {}
@@ -1425,6 +1429,7 @@ class Handler(BaseHTTPRequestHandler):
 
 # Imported here because the agent and scenario modules use the functions above.
 import data_catalog  # noqa: E402
+import detection_workspace  # noqa: E402
 import data_types  # noqa: E402
 import scene_library  # noqa: E402
 import workspace_agent  # noqa: E402
@@ -1433,6 +1438,7 @@ import workspace_scenarios  # noqa: E402
 
 LIBRARY = scene_library.SceneLibrary(sys.modules[__name__])
 CATALOG = data_catalog.DataCatalog(sys.modules[__name__])
+DETECTION = detection_workspace.DetectionWorkspace(sys.modules[__name__])
 AGENT = workspace_agent.WorkspaceAgent(sys.modules[__name__])
 FLOW_ASSISTANT = workspace_flow_assistant.FlowAssistant(sys.modules[__name__], AGENT.store)
 

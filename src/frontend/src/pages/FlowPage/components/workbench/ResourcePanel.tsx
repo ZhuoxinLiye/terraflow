@@ -22,6 +22,7 @@ import { useTypesStore } from "@/stores/typesStore";
 import type { APIClassType } from "@/types/api";
 import { componentDragData, sceneComponent } from "./resource-components";
 import TemplatePanel from "./TemplatePanel";
+import DetectionWorkspaceDialog from "./DetectionWorkspaceDialog";
 
 export default function ResourcePanel({
   section,
@@ -104,6 +105,9 @@ function DataResourcePanel() {
     <div className="flex h-full min-h-0 flex-col" data-testid="workbench-data">
       <header className="flex h-11 shrink-0 items-center justify-between border-b px-3 text-sm font-medium">
         <span>数据</span>
+        <div className="ml-auto mr-1">
+          <DetectionWorkspaceDialog />
+        </div>
         <Button
           size="icon"
           variant="ghost"

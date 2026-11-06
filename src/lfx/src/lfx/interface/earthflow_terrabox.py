@@ -420,6 +420,9 @@ def build_terrabox_component_source(spec: TerraboxToolSpec) -> str:
     class_name = component_class_name(spec.slug)
     tool_name = langchain_tool_name(spec.slug)
     parameters = spec.parameters or {"type": "object", "properties": {}}
+    request_timeout = parameters.get("x-request-timeout-seconds", 60)
+    if type(request_timeout) is not int or not 1 <= request_timeout <= 86400:
+        request_timeout = 60
     properties = _schema_properties(parameters)
     required = _required_fields(parameters)
     input_aliases = _component_input_aliases(list(properties))
@@ -430,7 +433,7 @@ def build_terrabox_component_source(spec: TerraboxToolSpec) -> str:
         "SecretStrInput(name='api_key', display_name='Terrabox API Key', "
         "info='API key used as X-API-Key when calling Terrabox.', required=False, advanced=True)",
         "IntInput(name='timeout', display_name='Timeout', info='Terrabox request timeout in seconds.', "
-        "value=60, advanced=True)",
+        f"value={request_timeout}, advanced=True)",
         "DataInput(name='preconditions', display_name='Scientific Preconditions', required=False, advanced=True, "
         "info='Connect an upstream preflight/evidence result. A failed or unavailable result blocks this call.')",
     ]
@@ -584,7 +587,7 @@ class {class_name}(LCToolComponent):
                 url,
                 headers=headers,
                 json={{"inputs": inputs}},
-                timeout=int(getattr(self, "timeout", 60) or 60),
+                timeout=int(getattr(self, "timeout", {request_timeout}) or {request_timeout}),
             )
             response.raise_for_status()
             payload = response.json()

@@ -224,7 +224,8 @@ def test_actual_normal_tool_help_counterexample_uses_current_adapter_contract():
     assert result["task_success"] is True and result["model_response_original"] == model["result"]
     assert "仅支持 facility 或 target" in result["result"] and "不支持 node_type=area" in result["result"]
     assert "partition_id" in result["result"] and "完整类别码" in result["result"] and "按相等匹配" in result["result"]
-    assert result["tool_contract_audit"]["source_commit"] == "3e49f1e"
+    assert result["tool_contract_audit"]["annotation_baseline_commit"] == "3e49f1e"
+    assert "模型候选区域" in result["result"] and "snapshot_id" in result["result"]
     assert result["tool_contract_audit"]["tool_execution_claimed"] is False
     assert "graph_report_audit" not in result
     assert model == {"result": "node_type支持facility/area/target，target_type_contains是子串匹配。"}
@@ -245,3 +246,53 @@ def test_query_parameter_words_do_not_bypass_actual_measurement_evidence():
         user_text="实际执行图谱query_nodes，facility_id=N003,node_type=target，返回本次计数结果并说明target_type_contains参数含义。")
     assert result["task_success"] is False and "999" not in result["result"]
     assert "tool_contract_audit" not in result and "no_actual_graph_execution" in result["report_audit"]["reason_codes"]
+
+
+def detection_output():
+    """Synthetic candidate snapshot output; no model inference."""
+    result = output(count_unit="model_candidate_regions", nodes=[{"id": "D000001"}],
+                    filters_applied={"partition_id": "IMAGE", "node_type": "target"})
+    result["provenance"].update(
+        dataset_id="segearth:" + "b" * 32, evidence_kind="model_detection_candidates",
+        source_version="segearth-detections-v1", category_method="explicit_model_category",
+        image={"width": 20, "height": 10, "sha256": "c" * 64,
+               "coordinate_system": "original_image_pixels", "crs": None},
+        detection_provenance={"input_sha256": "c" * 64, "source_model": "segearth"})
+    return result
+
+
+def test_detection_candidate_delivery_keeps_distinct_units_and_input_identity():
+    result = deliver(detection_output(), request="用图谱query_nodes统计partition_id=IMAGE的全部目标，limit=1。")
+    assert result["task_success"] and "模型候选区域" in result["result"]
+    assert "原图像素" in result["result"] and "不是校准置信度" in result["result"]
+    assert "已有标注记录" not in result["result"] and "c" * 64 in result["result"]
+
+
+@pytest.mark.parametrize("fault", ["crs", "frame", "image_sha", "width", "dataset", "category_method", "unit"])
+def test_detection_provenance_mismatch_vetoes_delivery(fault):
+    out = detection_output()
+    p = out["provenance"]
+    if fault == "crs": p["image"]["crs"] = "EPSG:4326"
+    elif fault == "frame": p["image"]["coordinate_system"] = "resized_pixels"
+    elif fault == "image_sha": p["detection_provenance"]["input_sha256"] = "0" * 64
+    elif fault == "width": p["image"]["width"] = True
+    elif fault == "dataset": p["dataset_id"] = "old-annotations"
+    elif fault == "category_method": p["category_method"] = "guessed"
+    elif fault == "unit": out["count_unit"] = "annotation_records"
+    result = deliver(out, request="图谱query_nodes计数partition_id=IMAGE，limit=1。")
+    assert not result["task_success"] and '"count"' not in result["result"]
+
+
+def test_detection_dataset_and_snapshot_must_match_explicit_request():
+    for mismatch in ("dataset_id=segearth:" + "d" * 32, "snapshot_id=sha256:" + "d" * 64):
+        result = deliver(detection_output(), request="图谱query_nodes统计partition_id=IMAGE，limit=1，" + mismatch)
+        assert not result["task_success"] and "mismatch" in result["result"]
+
+
+def test_detection_id_is_bound_and_untrusted_execution_cannot_deliver():
+    out = detection_output()
+    out.update(item_id="D000001", item_type="target", parents=[{"id": "IMAGE"}])
+    trusted = {"actual-query": "graph_query.get_item"}
+    assert deliver(out, request="读取图谱D000001的详情。", trusted=trusted)["task_success"]
+    assert not deliver(out, request="读取图谱D000002的详情。", trusted=trusted)["task_success"]
+    assert not deliver(out, request="读取图谱D000001的详情。", trusted={})["task_success"]

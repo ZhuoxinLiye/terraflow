@@ -1,0 +1,14 @@
+{
+  "source_archive": "/data2/liyezhuoxin/public/terrabox_segearth.zip",
+  "files": {
+    "index.html": "d88f7c00ecd6ab9dbe65b28c906315122851fb6308146f8e52b7a1d88f93273e",
+    "app.js": "c61293e99a88fffff866ed0354cf9347aff9b0b60796df3324a80e12bca30b99",
+    "styles.css": "9366e1eed0b58e4946d103dad70daf7fa7602182068dfae2eb4d0193afe43024"
+  },
+  "adaptations": [
+    "same-origin workspace authentication",
+    "local verified artifacts",
+    "saved detection history",
+    "graph snapshot handoff"
+  ]
+}

@@ -1,0 +1,114 @@
+{
+  "categories": [
+    {
+      "label": "building",
+      "prompts": [
+        "building rooftop",
+        "rectangular building roof",
+        "warehouse roof",
+        "flat roof building from aerial view",
+        "temporary shelter roof from aerial view",
+        "tent structure from aerial view",
+        "small hut roof from aerial view",
+        "white roof building",
+        "small white roof building",
+        "airport building roof",
+        "airport hangar roof",
+        "terminal building roof"
+      ],
+      "role": "target"
+    },
+    {
+      "label": "water tank",
+      "prompts": [
+        "circular water tank",
+        "industrial water tank",
+        "above ground reservoir"
+      ],
+      "role": "target"
+    },
+    {
+      "label": "shipping container",
+      "prompts": [
+        "shipping container",
+        "rectangular container box",
+        "row of shipping containers from aerial view",
+        "parallel rectangular containers",
+        "white shipping container roof",
+        "long narrow rectangular container",
+        "multiple aligned containers",
+        "container storage yard"
+      ],
+      "role": "target"
+    },
+    {
+      "label": "vehicle",
+      "prompts": [
+        "car from aerial view",
+        "truck from aerial view",
+        "pickup truck from aerial view"
+      ],
+      "role": "target"
+    },
+    {
+      "label": "ground clutter",
+      "prompts": [
+        "ground clutter",
+        "small debris",
+        "scattered objects",
+        "rock pile",
+        "gravel pile",
+        "stone pile"
+      ],
+      "role": "context"
+    },
+    {
+      "label": "material pile",
+      "prompts": [
+        "material pile",
+        "construction materials",
+        "material stacks"
+      ],
+      "role": "context"
+    },
+    {
+      "label": "open yard",
+      "prompts": [
+        "open industrial yard",
+        "bare ground",
+        "concrete ground",
+        "asphalt pavement",
+        "asphalt strip",
+        "runway",
+        "taxiway",
+        "airport apron",
+        "paved road",
+        "paved ground"
+      ],
+      "role": "context"
+    },
+    {
+      "label": "shadow",
+      "prompts": [
+        "shadow"
+      ],
+      "role": "context"
+    },
+    {
+      "label": "vehicle-like clutter",
+      "prompts": [
+        "vehicle-like clutter",
+        "small bright objects on ground"
+      ],
+      "role": "context"
+    },
+    {
+      "label": "container-like clutter",
+      "prompts": [
+        "container-like clutter",
+        "rectangular material stacks"
+      ],
+      "role": "context"
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>TerraBox · SegEarth 影像工作台</title><link rel="stylesheet" href="/api/workspace/detection/ui/styles.css"><script src="/api/workspace/detection/ui/app.js" defer></script></head>
+<body>
+<header><a class="brand" href="#">◈ <strong>TerraBox</strong><span class="divider"></span><span>SegEarth 影像工作台</span></a><div id="health" class="health">正在连接服务</div></header>
+<main>
+<aside class="sidebar">
+<div class="section-heading"><span class="eyebrow">WORKSPACE</span><h1>遥感智能解译</h1><p>定义目标，探索影像中的每一处细节。</p></div>
+<label class="field" hidden>访问令牌<input id="token" type="password" placeholder="输入服务访问令牌" autocomplete="off"></label>
+<label class="drop" id="drop" for="file"><span class="upload-icon">＋</span><strong>导入遥感影像</strong><small>点击选择，或拖入右侧画布</small><small>JPG / PNG / WEBP / TIFF · ≤ 100 MB</small><input id="file" type="file" accept=".jpg,.jpeg,.png,.webp,.tif,.tiff"></label>
+<div id="filename" class="filename">尚未选择影像</div>
+<div class="prompt-heading"><div><span class="eyebrow">TEXT PROMPTS</span><h2>目标类别 <span id="categoryCount"></span></h2></div><button id="addCategory" title="新增目标类别" aria-label="新增目标类别">＋</button></div>
+<p class="hint">目标类别参与检测、分割展示与计数。展开可编辑细分提示词。</p>
+<div id="promptPanels" class="prompt-panels">
+<div id="prompts" class="prompts"><p class="hint">正在加载类别。</p></div>
+<details id="backgroundSettings" class="background-settings"><summary>背景 / 对抗类别 <span id="backgroundCount">0</span><small>高级设置</small></summary>
+<p class="hint">用于与目标竞争、减少误检。参与推理，不着色、不计数；通常无需修改。固定 background 类自动保留。</p>
+<div id="backgroundPrompts" class="prompts"></div><button id="addBackground" class="subtle-button">＋ 新增背景类别</button></details></div>
+<div class="config-bottom"><div class="confirm-row"><button id="confirmCategories" disabled>确认类别</button><button id="revertCategories" disabled>撤销修改</button></div><p id="promptState" class="prompt-state" role="status" aria-live="polite">等待加载类别</p><label class="field inline">每批切片数<input id="batch" type="number" min="1" step="1" value="2" inputmode="numeric" aria-label="每批切片数"></label><button id="run" class="primary" disabled>开始识别 <span>↗</span></button><div id="status" class="status" role="status" aria-live="polite">等待导入影像</div></div>
+</aside>
+<section class="workspace">
+<div class="viewer-top"><div><span class="live-dot"></span><strong>影像工作区</strong><span id="imageInfo">等待导入</span></div><div class="toolbar"><select id="view" aria-label="叠加类型"><option value="boxes">检测框</option><option value="semantic">语义分割</option></select><button id="toggleOverlay" aria-pressed="true" disabled>◉ 结果显示</button><button id="fullscreen" title="全屏工作区">⛶</button></div></div>
+<div id="viewport" class="viewport" tabindex="0" aria-label="影像画布，拖动平移，滚轮缩放，支持拖入文件">
+<div id="empty" class="empty"><div class="empty-mark">▧</div><span class="eyebrow">YOUR IMAGE, IN FOCUS</span><h2>从一幅影像开始</h2><p>将遥感影像拖入此处，探索开放词汇识别</p><button id="importImage">选择影像 ↗</button></div>
+<div id="scene" class="scene" hidden><img id="preview" alt="原始遥感影像" draggable="false"><img id="semantic" alt="语义分割叠加" draggable="false" hidden><canvas id="boxes" aria-label="检测框叠加"></canvas></div>
+<div class="canvas-label">SEGEARTH / ORIGINAL PIXELS</div>
+<div class="zoom-controls"><button id="zoomOut" aria-label="缩小">−</button><span id="zoom">100%</span><button id="zoomIn" aria-label="放大">＋</button><span class="control-divider"></span><button id="fit">适应画布</button></div>
+</div>
+<div class="analysis-bar">
+<section class="progress-panel"><div class="progress-heading"><div><span class="eyebrow">LIVE INFERENCE</span><h2 id="progressTitle">切片推理进度</h2></div><strong id="percent">—</strong></div><div class="grid-wrap"><canvas id="grid" width="680" height="130" aria-label="动态切片推理网格"></canvas><span id="gridEmpty">开始识别后，按实际影像动态划分网格</span></div><div class="progress-meta"><span id="progressDetail">等待任务开始</span><span><i class="pending-dot"></i>待处理 <i class="active-dot"></i>当前批次 <i class="done-dot"></i>已完成</span></div></section>
+<section class="summary"><div class="metrics"><div><strong id="count">—</strong><span>模型候选区域</span></div><div><strong id="elapsed">—</strong><span>运行耗时</span></div></div><div class="legend-heading">类别统计 <span>颜色与标注同步 · 候选区域未经人工核验</span></div><div id="legend" class="legend"></div><p id="resultConfigHint" class="result-config-hint" hidden></p></section>
+</div>
+<div class="footer"><label>已保存检测 <select id="savedResults" aria-label="已保存检测结果"><option value="">选择结果</option></select></label><button id="useGraph" disabled>用于图谱查询</button><div><button id="downloadImage" disabled>下载结果图</button><button id="downloadJson" disabled>JSON</button><button id="downloadZip" disabled>全部结果 ↓</button></div></div>
+</section>
+</main>
+<script src="/api/workspace/detection/ui/integration.js" defer></script></body></html>
