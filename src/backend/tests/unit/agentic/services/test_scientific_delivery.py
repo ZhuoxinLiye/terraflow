@@ -329,3 +329,22 @@ async def test_successful_measurement_stream_and_short_followup_use_typed_histor
     canvas.assert_not_called(); classifier.assert_not_called(); engine.assert_not_called()
     assert followup["task_success"] is True and "上次已记录执行" in followup["result"]
     assert "300 平方米" in followup["result"] and followup["analysis_performed"] is False
+
+
+@pytest.mark.parametrize("text", [
+    "Count the buildings within 500 m of the light rail in /data2/x/terrabox-water-demo/runtime/uploads/n1/houston.tif",
+    "统计 /srv/terrabox-water-demo/runtime/uploads/a/buildings.shp 里离铁路 500 米内的建筑数量",
+    "List the features in https://example.org/data/flood/water_layers/roads.geojson and report the total length",
+])
+def test_paths_and_urls_do_not_select_a_scientific_topic(text):
+    # Synthetic requests: the only water/flood wording sits inside a file path or URL.
+    assert classify_scientific_request(text).topic is None
+
+
+def test_subject_wording_outside_a_path_still_selects_the_topic():
+    request = classify_scientific_request(
+        "单张水体分割掩膜 /srv/terrabox-water-demo/runtime/a/mask.tif 能认定洪水新增淹没吗？")
+    assert request.topic == "water_inference"
+    measured = classify_scientific_request("计算 /srv/demo/runtime/a/after.tif 的新增水体面积")
+    assert measured.topic == "measurement"
+

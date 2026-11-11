@@ -55,6 +55,16 @@ def _has(pattern: str, text: str) -> bool:
     return bool(re.search(pattern, text, re.I))
 
 
+# File paths and URLs name data; their spelling says nothing about the subject of
+# the request. A path such as ".../terrabox-water-demo/runtime/a.tif" must not
+# turn a building or vector question into a water measurement.
+_LOCATOR = re.compile(r"[A-Za-z][A-Za-z0-9+.\-]*://\S+|(?<![\w.])(?:~|\.{1,2})?(?:/[\w.\-~%+@=:]+){2,}/?")
+
+
+def _without_locators(text: str) -> str:
+    return _LOCATOR.sub(" ", text)
+
+
 @dataclass(frozen=True)
 class ScientificRequest:
     topic: str | None = None
@@ -70,10 +80,11 @@ def classify_scientific_request(text: str, user_history: list[str] | None = None
     File paths, IDs and data selections are never interpreted as missing data.
     """
     current = text.strip()
-    topic_text = current
+    plain = _without_locators(current)
+    topic_text = plain
     anaphoric = _has(r"^(那|那么|这个|这|它|所以|刚才|上次|之前|继续|为什么|多少|能否|可以|what about|why|that|it\b|previous)", current)
     if len(current) < 100 and anaphoric and not _has(r"EPSG|经纬|水体|掩膜|直升|起降|landing|flood|water|latitude", current):
-        topic_text += "\n" + next((t for t in reversed(user_history or []) if t.strip()), "")
+        topic_text += "\n" + _without_locators(next((t for t in reversed(user_history or []) if t.strip()), ""))
     historical = _has(r"上次|刚才|此前|之前|历史结果|已保存.*结果|previous|last (?:run|result)|earlier", current) or (topic_text != current and anaphoric)
     angular = _has(r"EPSG\s*:?\s*4326|经纬度|平方度|degree|latitude|角度.*像元", topic_text)
     area = _has(r"面积|平方|平方米|m[²2]|area|pixel|像元", topic_text)
@@ -110,7 +121,7 @@ def classify_scientific_request(text: str, user_history: list[str] | None = None
         return ScientificRequest(topic, True, historical)
     if no_input and not historical:
         return ScientificRequest("missing_measurement", True, False)
-    measurement = _has(r"多少|计算|估算|测量|面积|平方米|像元|数值|calculate|measure|how (?:much|many)|area|pixels?", current)
+    measurement = _has(r"多少|计算|估算|测量|面积|平方米|像元|数值|calculate|measure|how (?:much|many)|area|pixels?", plain)
     if topic in {"angular_area", "water_inference"} and measurement and (operation or not conceptual):
         return ScientificRequest("measurement", False, historical)
     if operation and not conceptual and not measurement and topic == "water_inference":
