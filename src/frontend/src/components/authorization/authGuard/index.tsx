@@ -8,6 +8,17 @@ import { useRefreshAccessToken } from "@/controllers/API/queries/auth";
 import { CustomNavigate } from "@/customization/components/custom-navigate";
 import useAuthStore from "@/stores/authStore";
 
+// Where an unauthenticated visitor is sent. Only the site root carries no
+// destination: here "/" opens the canvas workspace, so "/flows" (with its
+// filter) must be kept, or a momentarily unconfirmed session on a full page
+// load ends on a canvas instead of the list.
+export function loginRedirectTarget(pathname: string, search = ""): string {
+  if (pathname === "/" || pathname.includes("login")) {
+    return "/login";
+  }
+  return `/login?redirect=${encodeURIComponent(pathname + search)}`;
+}
+
 export const ProtectedRoute = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
   const { mutate: mutateRefresh } = useRefreshAccessToken();
@@ -40,15 +51,12 @@ export const ProtectedRoute = ({ children }) => {
   }, [isAuthenticated]);
 
   if (shouldRedirect || testMockAutoLogin) {
-    const currentPath = window.location.pathname;
-    const isHomePath = currentPath === "/" || currentPath === "/flows";
-    const isLoginPage = location.pathname.includes("login");
     return (
       <CustomNavigate
-        to={
-          "/login" +
-          (!isHomePath && !isLoginPage ? "?redirect=" + currentPath : "")
-        }
+        to={loginRedirectTarget(
+          window.location.pathname,
+          window.location.search,
+        )}
         replace
       />
     );
