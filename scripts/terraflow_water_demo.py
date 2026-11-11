@@ -1209,7 +1209,9 @@ def run_rejection_chain(
         scenario=f"paired_water_{fixture_meta['input_kind']}",
     )
     outputs = record.get("outputs") if isinstance(record.get("outputs"), dict) else {}
-    if not record["success"] or not outputs.get("execution_blocked"):
+    # Terrabox reports an explicit refusal as an unsuccessful execution (success=false);
+    # the refusal itself is the blocked output carrying its reason code.
+    if not outputs.get("execution_blocked") or not outputs.get("reason_code"):
         raise DemoError("Mismatch chain did not produce a deterministic execution_blocked refusal")
     return {
         "status": "deterministic_refusal",
