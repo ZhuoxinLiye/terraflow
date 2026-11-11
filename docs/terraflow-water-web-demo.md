@@ -60,8 +60,8 @@ ssh -N -L 14173:127.0.0.1:4173 L20X4-bhc
 | --- | --- | --- |
 | 对话 | `/workspace`、`/workspace/c/:id` | 左侧会话列表；中间消息流；底部输入框，可用“＋ 添加数据”附加一到四景影像 |
 | 数据 | `/workspace/data` | 按组列出的单景影像、来源、上传（一景或多景）；“用这景/这一组对话”会带着这些影像打开对话 |
-| 场景 | `/workspace/scenarios` | 已注册场景的输入、输出、工具和限制 |
-| Flow | `/workspace/flows` | 带 `agent-workspace` 标签的 flow（旧的按名称前缀兼容）；可选场景和影像生成模板 flow |
+| 场景 | `/workspace/scenarios` | 2026-11-11 起转到当前画布的模板面板；遥感模板在模板目录的“遥感”分类里，通用模板在“通用”分类里 |
+| Flow | `/workspace/flows` | 2026-11-11 起跳转到原生列表 `/flows?source=workbench`；工作台生成的工作流在原生列表里带来源、场景、影像和步骤信息 |
 | 工具 | `/workspace/tools` | Terrabox 工具目录、可用状态、被哪些场景使用、按输入类型的参数预设 |
 | 运行记录 | `/workspace/runs`、`/workspace/runs/:id` | 历史运行与通用结果详情 |
 
