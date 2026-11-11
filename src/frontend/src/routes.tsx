@@ -43,7 +43,7 @@ import ModelProvidersPage from "./pages/SettingsPage/pages/ModelProvidersPage";
 import MessagesPage from "./pages/SettingsPage/pages/messagesPage";
 import ShortcutsPage from "./pages/SettingsPage/pages/ShortcutsPage";
 import ViewPage from "./pages/ViewPage";
-import { DataPage, FlowsPage, RunsPage } from "./pages/WorkspacePage/pages";
+import { DataPage, RunsPage } from "./pages/WorkspacePage/pages";
 import RunDetailPage from "./pages/WorkspacePage/RunDetailPage";
 import WorkspaceShell from "./pages/WorkspacePage/WorkspaceShell";
 
@@ -99,7 +99,13 @@ const router = createBrowserRouter(
                 <Route path="tools" element={<WorkspaceEntry />} />
                 <Route element={<WorkspaceShell />}>
                   <Route path="data/manage" element={<DataPage />} />
-                  <Route path="flows" element={<FlowsPage />} />
+                  {/* The old workbench list: now the native list, same subset preselected. */}
+                  <Route
+                    path="flows"
+                    element={
+                      <CustomNavigate replace to="/flows?source=workbench" />
+                    }
+                  />
                   <Route path="runs" element={<RunsPage />} />
                   <Route path="runs/:runId" element={<RunDetailPage />} />
                 </Route>

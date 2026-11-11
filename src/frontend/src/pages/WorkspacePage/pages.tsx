@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { API, apiJson, useScenes } from "./api";
+import { API, apiJson } from "./api";
 import DataPanel from "./DataPanel";
-import FlowsPanel from "./FlowsPanel";
 import HistoryPanel from "./HistoryPanel";
 import PageFrame from "./PageFrame";
 import ToolsPanel from "./ToolsPanel";
@@ -17,15 +16,6 @@ export function DataPage() {
           navigate("/workspace?attach=" + ids.map(encodeURIComponent).join(","))
         }
       />
-    </PageFrame>
-  );
-}
-
-export function FlowsPage() {
-  const { scenes } = useScenes();
-  return (
-    <PageFrame>
-      <FlowsPanel scenes={scenes} />
     </PageFrame>
   );
 }

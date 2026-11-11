@@ -286,6 +286,25 @@ const HeaderComponent = ({
                     </Button>
                   </DeleteConfirmationModal>
                 </div>
+                {!hideNewFlowButton && flowType === "flows" && (
+                  // The shared template directory: remote-sensing and general templates.
+                  <Button
+                    variant="outline"
+                    size="iconMd"
+                    className="mr-2 px-2.5 !text-mmd"
+                    onClick={() => setNewProjectModal(true)}
+                    data-testid="browse-templates-btn"
+                  >
+                    <ForwardedIconComponent
+                      name="LayoutPanelTop"
+                      aria-hidden="true"
+                      className="h-4 w-4"
+                    />
+                    <span className="hidden whitespace-nowrap font-semibold md:inline">
+                      {t("templatesModal.title")}
+                    </span>
+                  </Button>
+                )}
                 {!hideNewFlowButton && (
                   <ShadTooltip content={t("mainPage.newFlow")} side="bottom">
                     <Button

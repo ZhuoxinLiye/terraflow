@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import Icon from "@/components/common/genericIconComponent";
 import { Button } from "@/components/ui/button";
 import {
@@ -11,10 +11,12 @@ import {
 import { Input } from "@/components/ui/input";
 import useSaveFlow from "@/hooks/flows/use-save-flow";
 import { useAddComponent } from "@/hooks/use-add-component";
+import TemplatesModal from "@/modals/templatesModal";
 import { useCatalog, useScenes } from "@/pages/WorkspacePage/api";
 import ItemDetail from "@/pages/WorkspacePage/ItemDetail";
 import type { CatalogItem } from "@/pages/WorkspacePage/types";
 import UploadPanel from "@/pages/WorkspacePage/UploadPanel";
+import { useOpenWorkbenchFlow } from "@/pages/WorkspacePage/use-open-workbench-flow";
 import useAssistantManagerStore from "@/stores/assistantManagerStore";
 import useFlowStore from "@/stores/flowStore";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
@@ -30,13 +32,17 @@ export default function ResourcePanel({
   section: "data" | "templates";
 }) {
   const save = useSaveFlow();
-  const navigate = useNavigate();
+  const openFlow = useOpenWorkbenchFlow();
   const assistantBusy = useAssistantManagerStore(
     (s) => s.isAssistantProcessing,
   );
   const flowLocked = useFlowStore(
     (s) => s.isBuilding || !!s.currentFlow?.locked,
   );
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const { id: flowId } = useParams();
+  // A general template opens in another flow; the directory does not follow it there.
+  useEffect(() => setDirectoryOpen(false), [flowId]);
   if (section === "data") return <DataResourcePanel />;
   return (
     <div
@@ -46,11 +52,40 @@ export default function ResourcePanel({
       <header className="flex h-11 shrink-0 items-center border-b px-3 text-sm font-medium">
         工作流模板
       </header>
-      <TemplatePanel
-        disabled={flowLocked || assistantBusy}
-        save={save}
-        openFlow={async (id) => navigate(`/flow/${id}`)}
-      />
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <section data-testid="workbench-templates-remote-sensing">
+          <h3 className="px-3 pt-3 text-xs font-semibold">遥感</h3>
+          <TemplatePanel
+            disabled={flowLocked || assistantBusy}
+            save={save}
+            openFlow={openFlow}
+          />
+        </section>
+        <section
+          className="space-y-2 border-t p-3 text-xs"
+          data-testid="workbench-templates-general"
+        >
+          <h3 className="font-semibold">通用</h3>
+          <p className="leading-5 text-muted-foreground">
+            Agent、RAG、问答等通用起步图，在模板目录中按用途浏览；选中后在新工作流中打开。
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full"
+            onClick={() => setDirectoryOpen(true)}
+          >
+            浏览通用模板
+          </Button>
+        </section>
+      </div>
+      {directoryOpen && (
+        <TemplatesModal
+          open={directoryOpen}
+          setOpen={setDirectoryOpen}
+          initialTab="all-templates"
+        />
+      )}
     </div>
   );
 }

@@ -16,6 +16,10 @@ import useDeleteFlow from "@/hooks/flows/use-delete-flow";
 import DeleteConfirmationModal from "@/modals/deleteConfirmationModal";
 import ExportModal from "@/modals/exportModal";
 import FlowSettingsModal from "@/modals/flowSettingsModal";
+import {
+  summarizeFlowSource,
+  type WorkbenchFlowSource,
+} from "@/pages/WorkspacePage/flow-source";
 import useAlertStore from "@/stores/alertStore";
 import type { FlowType } from "@/types/flow";
 import { downloadFlow } from "@/utils/reactflowUtils";
@@ -31,11 +35,14 @@ const ListComponent = ({
   selected,
   setSelected,
   shiftPressed,
+  source,
 }: {
   flowData: FlowType;
   selected: boolean;
   setSelected: (selected: boolean) => void;
   shiftPressed: boolean;
+  /** Recorded origin of a flow the workbench generated; absent for other flows. */
+  source?: WorkbenchFlowSource | null;
 }) => {
   const { t } = useTranslation();
   const navigate = useCustomNavigate();
@@ -47,6 +54,7 @@ const ListComponent = ({
   const [openSettings, setOpenSettings] = useState(false);
   const [openExportModal, setOpenExportModal] = useState(false);
   const isComponent = flowData.is_component ?? false;
+  const sourceSummary = source ? summarizeFlowSource(source) : "";
 
   const { getIcon } = useGetTemplateStyle(flowData);
 
@@ -172,14 +180,28 @@ const ListComponent = ({
                   {flowData.name}
                 </span>
               </div>
-              <div className="flex min-w-0 flex-shrink text-xs text-muted-foreground">
-                <span className="truncate">
-                  {t("mainPage.editedAgo", {
-                    time: timeElapsed(flowData.updated_at, t),
-                  })}
-                </span>
-              </div>
+              {flowData.updated_at && (
+                <div className="flex min-w-0 flex-shrink text-xs text-muted-foreground">
+                  <span className="truncate">
+                    {t("mainPage.editedAgo", {
+                      time: timeElapsed(flowData.updated_at, t),
+                    })}
+                  </span>
+                </div>
+              )}
             </div>
+            {source && (
+              <div
+                className="mt-0.5 flex min-w-0 items-baseline gap-1.5 text-xs text-muted-foreground"
+                data-testid={`flow-source-${flowData.id}`}
+                title={sourceSummary}
+              >
+                <span className="shrink-0 rounded border px-1 text-[11px] leading-4">
+                  工作台
+                </span>
+                <span className="truncate">{sourceSummary}</span>
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useLocation, useParams } from "react-router-dom";
+import { useLocation, useParams, useSearchParams } from "react-router-dom";
 import PaginatorComponent from "@/components/common/paginatorComponent";
 import ProjectFilesTab from "@/components/common/projectFilesTab";
 import CardsWrapComponent from "@/components/core/cardsWrapComponent";
@@ -14,12 +14,14 @@ import {
   ENABLE_MCP,
 } from "@/customization/feature-flags";
 import { useCustomNavigate } from "@/customization/hooks/use-custom-navigate";
+import { useWorkbenchFlowSources } from "@/pages/WorkspacePage/flow-source";
 import useFlowsManagerStore from "@/stores/flowsManagerStore";
 import { useFolderStore } from "@/stores/foldersStore";
 import HeaderComponent from "../../components/header";
 import ListComponent from "../../components/list";
 import ListSkeleton from "../../components/listSkeleton";
 import ModalsComponent from "../../components/modalsComponent";
+import { useFullFlows } from "../../hooks/use-full-flows";
 import useFileDrop from "../../hooks/use-on-file-drop";
 import type { FlowTabType } from "../../types";
 import DeploymentsPage from "../deploymentsPage/deployments-page";
@@ -93,6 +95,43 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
       pages: folderData?.flows?.pages ?? 0,
     },
   };
+
+  // Flows the workbench generated keep their recorded source in this list. The old
+  // workbench list page showed only that subset; `?source=workbench` shows the same one.
+  const workbench = useWorkbenchFlowSources(type === "flows");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const workbenchOnly =
+    flowType === "flows" && searchParams.get("source") === "workbench";
+  const setWorkbenchOnly = useCallback(
+    (only: boolean) => {
+      const next = new URLSearchParams(searchParams);
+      if (only) next.set("source", "workbench");
+      else next.delete("source");
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams],
+  );
+  const workbenchFlows = useMemo(
+    () =>
+      (flows ?? []).filter(
+        (flow) =>
+          !flow.is_component &&
+          flow.folder_id === (folderId ?? myCollectionId) &&
+          workbench.sourceOf(flow) !== null,
+      ),
+    [flows, folderId, myCollectionId, workbench.sourceOf],
+  );
+  // The store knows flows by header only; the subset view loads their full rows.
+  const workbenchRows = useFullFlows(workbenchFlows, workbenchOnly);
+  const listedFlows = useMemo(
+    () =>
+      workbenchOnly
+        ? workbenchRows.flows.filter((flow) =>
+            flow.name.toLowerCase().includes(search.trim().toLowerCase()),
+          )
+        : data.flows,
+    [workbenchOnly, workbenchRows.flows, search, folderData?.flows?.items],
+  );
 
   useEffect(() => {
     localStorage.setItem("view", view);
@@ -223,7 +262,7 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
       setLastSelectedIndex(index);
       if (isShiftPressed && lastSelectedIndex !== null) {
         // Find the indices of the last selected and current flow
-        const flows = data.flows;
+        const flows = listedFlows;
 
         // Determine the range to select
         const start = Math.min(lastSelectedIndex, index);
@@ -251,14 +290,17 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
         }
       }
     },
-    [selectedFlows, lastSelectedIndex, data.flows, isShiftPressed],
+    [selectedFlows, lastSelectedIndex, listedFlows, isShiftPressed],
   );
 
   useEffect(() => {
-    setSelectedFlows((old) =>
-      old.filter((id) => data.flows.some((flow) => flow.id === id)),
-    );
-  }, [folderData?.flows?.items]);
+    setSelectedFlows((old) => {
+      const kept = old.filter((id) =>
+        listedFlows.some((flow) => flow.id === id),
+      );
+      return kept.length === old.length ? old : kept;
+    });
+  }, [listedFlows]);
 
   // Reset key states when navigating away
   useEffect(() => {
@@ -299,6 +341,47 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                 isEmptyFolder={isEmptyFolder === true}
                 selectedFlows={selectedFlows}
               />
+              {flowType === "flows" &&
+                isEmptyFolder === false &&
+                (workbenchOnly || workbenchFlows.length > 0) && (
+                  <div
+                    className="mt-3 flex flex-wrap items-center gap-2 text-xs"
+                    data-testid="flow-source-filter"
+                  >
+                    <span className="text-muted-foreground">来源</span>
+                    {[
+                      { only: false, label: "全部" },
+                      {
+                        only: true,
+                        label: `工作台生成（${workbenchFlows.length}）`,
+                      },
+                    ].map((option) => (
+                      <button
+                        key={option.label}
+                        type="button"
+                        aria-pressed={workbenchOnly === option.only}
+                        data-testid={
+                          option.only
+                            ? "flow-source-filter-workbench"
+                            : "flow-source-filter-all"
+                        }
+                        onClick={() => setWorkbenchOnly(option.only)}
+                        className={`rounded-md border px-2 py-1 ${
+                          workbenchOnly === option.only
+                            ? "border-foreground text-foreground"
+                            : "border-border text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                    {workbench.error && (
+                      <span role="alert" className="text-destructive">
+                        工作台来源索引暂时无法读取，来源和影像信息不完整。
+                      </span>
+                    )}
+                  </div>
+                )}
               {isEmptyFolder === true ? (
                 <EmptyFolder
                   setOpenModal={setNewProjectModal}
@@ -306,7 +389,9 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                 />
               ) : (
                 <div className="flex h-full flex-col">
-                  {isLoading || isEmptyFolder === null ? (
+                  {isLoading ||
+                  isEmptyFolder === null ||
+                  (workbenchOnly && workbenchRows.loading) ? (
                     view === "grid" ? (
                       <div className="mt-4 grid grid-cols-1 gap-1 md:grid-cols-2 lg:grid-cols-3">
                         <ListSkeleton />
@@ -326,12 +411,16 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                     <ProjectFilesTab
                       projectId={folderId ?? myCollectionId ?? ""}
                     />
+                  ) : workbenchOnly && listedFlows.length === 0 ? (
+                    <div className="pt-24 text-center text-sm text-secondary-foreground">
+                      没有匹配的工作台工作流。
+                    </div>
                   ) : (flowType === "flows" || flowType === "components") &&
                     data &&
-                    data.pagination.total > 0 ? (
+                    (workbenchOnly || data.pagination.total > 0) ? (
                     view === "grid" ? (
                       <div className="mt-4 grid grid-cols-1 gap-1 md:grid-cols-2 lg:grid-cols-3">
-                        {data.flows.map((flow, index) => (
+                        {listedFlows.map((flow, index) => (
                           <ListComponent
                             key={flow.id}
                             flowData={flow}
@@ -340,12 +429,17 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                               setSelectedFlow(selected, flow.id, index)
                             }
                             shiftPressed={isShiftPressed || isCtrlPressed}
+                            source={
+                              flowType === "flows"
+                                ? workbench.sourceOf(flow)
+                                : null
+                            }
                           />
                         ))}
                       </div>
                     ) : (
                       <div className="mt-4 flex flex-col gap-1">
-                        {data.flows.map((flow, index) => (
+                        {listedFlows.map((flow, index) => (
                           <ListComponent
                             key={flow.id}
                             flowData={flow}
@@ -354,6 +448,11 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
                               setSelectedFlow(selected, flow.id, index)
                             }
                             shiftPressed={isShiftPressed || isCtrlPressed}
+                            source={
+                              flowType === "flows"
+                                ? workbench.sourceOf(flow)
+                                : null
+                            }
                           />
                         ))}
                       </div>
@@ -368,6 +467,7 @@ const HomePage = ({ type }: { type: "flows" | "components" | "mcp" }) => {
             </div>
           </div>
           {(flowType === "flows" || flowType === "components") &&
+            !workbenchOnly &&
             !isLoading &&
             !isEmptyFolder &&
             data.pagination.total >= 10 && (

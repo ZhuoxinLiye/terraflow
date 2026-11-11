@@ -44,13 +44,7 @@ export function Nav({ categories, currentTab, setCurrentTab }: NavProps) {
 
         {categories.map((category, index) => (
           <SidebarGroup key={index}>
-            <SidebarGroupLabel
-              className={`${
-                index === 0
-                  ? "hidden"
-                  : "mb-1 text-sm font-semibold text-muted-foreground"
-              }`}
-            >
+            <SidebarGroupLabel className="mb-1 text-sm font-semibold text-muted-foreground">
               {category.title}
             </SidebarGroupLabel>
             <SidebarGroupContent>

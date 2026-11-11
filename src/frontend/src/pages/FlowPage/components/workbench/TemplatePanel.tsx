@@ -6,16 +6,27 @@ import {
   pickableScenes,
   useScenes,
 } from "@/pages/WorkspacePage/api";
+import { createSceneTemplate } from "@/pages/WorkspacePage/create-scene-template";
 import type { Scenario } from "@/pages/WorkspacePage/types";
 
+/**
+ * The remote-sensing template form: pick a task and its imagery, open the template flow.
+ * Mounted by the canvas sidebar and by the shared template directory; both create through
+ * `createSceneTemplate`.
+ */
 export default function TemplatePanel({
   disabled,
   save,
   openFlow,
+  submitLabel = "保存当前图并打开模板",
+  intro = "选择影像，打开由原生组件组成的模板。当前工作流先保存，模板在新工作流中打开。",
 }: {
   disabled: boolean;
+  /** Saves the flow being edited, if any, before the template opens in another flow. */
   save: () => Promise<void>;
   openFlow: (id: string) => Promise<void>;
+  submitLabel?: string;
+  intro?: string;
 }) {
   const { scenes } = useScenes();
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
@@ -23,6 +34,7 @@ export default function TemplatePanel({
   const [roles, setRoles] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [stale, setStale] = useState(false);
   const scenario = scenarios.find((s) => s.id === selected);
   const choices = pickableScenes(scenes, false).filter((s) =>
     scenario?.input_kinds?.includes(s.input_kind),
@@ -37,22 +49,28 @@ export default function TemplatePanel({
       )
       .catch((e) => setError(String(e)));
   }, []);
-  async function create() {
-    if (!ready || busy || disabled) return;
+  async function create(replaceStale = false) {
+    if (!scenario || !ready || busy || disabled) return;
     setBusy(true);
     setError("");
+    setStale(false);
     try {
       await save();
-      const result = await apiJson<{ flow_id: string }>(
-        API + "/canvas-templates",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ scenario: selected, inputs: roles }),
-        },
+      const result = await createSceneTemplate(
+        scenario.id,
+        Object.fromEntries(
+          scenario.inputs.map((input) => [input.role, roles[input.role]]),
+        ),
+        { replaceStale },
       );
-      if (!result.flow_id) throw new Error("服务未返回工作流编号。");
-      await openFlow(result.flow_id);
+      if (result.status === "stale") {
+        setStale(true);
+        setError(
+          "索引中登记的这个模板工作流已被删除，旧记录仍在，所以没有生成新的。",
+        );
+        return;
+      }
+      await openFlow(result.flowId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "模板创建失败");
     } finally {
@@ -61,9 +79,7 @@ export default function TemplatePanel({
   }
   return (
     <div className="space-y-3 overflow-y-auto p-3 text-xs">
-      <p className="leading-5 text-muted-foreground">
-        选择影像，打开由原生组件组成的模板。当前工作流先保存，模板在新工作流中打开。
-      </p>
+      <p className="leading-5 text-muted-foreground">{intro}</p>
       <label className="block space-y-1">
         <span>分析任务</span>
         <select
@@ -73,6 +89,8 @@ export default function TemplatePanel({
           onChange={(e) => {
             setSelected(e.target.value);
             setRoles({});
+            setError("");
+            setStale(false);
           }}
         >
           <option value="">选择模板</option>
@@ -112,12 +130,23 @@ export default function TemplatePanel({
         disabled={!ready || busy || disabled}
         onClick={() => void create()}
       >
-        {busy ? "正在打开…" : "保存当前图并打开模板"}
+        {busy ? "正在打开…" : submitLabel}
       </Button>
       {error && (
         <p role="alert" className="text-destructive">
           {error}
         </p>
+      )}
+      {stale && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full"
+          disabled={busy || disabled}
+          onClick={() => void create(true)}
+        >
+          清除这条旧记录并重新生成
+        </Button>
       )}
     </div>
   );

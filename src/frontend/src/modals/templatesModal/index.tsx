@@ -14,14 +14,19 @@ import type { newFlowModalPropsType } from "../../types/components";
 import BaseModal from "../baseModal";
 import GetStartedComponent from "./components/GetStartedComponent";
 import { Nav } from "./components/navComponent";
+import RemoteSensingTemplateComponent from "./components/RemoteSensingTemplateComponent";
 import TemplateContentComponent from "./components/TemplateContentComponent";
+
+/** Tab of the remote-sensing category in the template directory. */
+export const REMOTE_SENSING_TAB = "remote-sensing";
 
 export default function TemplatesModal({
   open,
   setOpen,
-}: newFlowModalPropsType): JSX.Element {
+  initialTab = "get-started",
+}: newFlowModalPropsType & { initialTab?: string }): JSX.Element {
   const { t } = useTranslation();
-  const [currentTab, setCurrentTab] = useState("get-started");
+  const [currentTab, setCurrentTab] = useState(initialTab);
   const [loading, setLoading] = useState(false);
   const addFlow = useAddFlow();
   const navigate = useCustomNavigate();
@@ -55,10 +60,15 @@ export default function TemplatesModal({
       });
   };
 
-  // Define categories and their items
+  // One directory, two classes of template: remote-sensing analysis (scenario plus
+  // imagery, built by the workbench service) and the general starter flows.
   const categories: Category[] = [
     {
-      title: t("templatesModal.title"),
+      title: "遥感",
+      items: [{ title: "遥感分析", icon: "Globe", id: REMOTE_SENSING_TAB }],
+    },
+    {
+      title: "通用",
       items: [
         // Hide "Get Started" tab if starter projects are hidden
         ...(hideStarterProjects
@@ -78,7 +88,7 @@ export default function TemplatesModal({
       ],
     },
     {
-      title: t("templatesModal.useCases"),
+      title: "通用 · " + t("templatesModal.useCases"),
       items: [
         {
           title: t("templatesModal.assistants"),
@@ -106,7 +116,7 @@ export default function TemplatesModal({
       ],
     },
     {
-      title: t("templatesModal.methodology"),
+      title: "通用 · " + t("templatesModal.methodology"),
       items: [
         {
           title: t("templatesModal.prompting"),
@@ -130,7 +140,11 @@ export default function TemplatesModal({
               setCurrentTab={setCurrentTab}
             />
             <main className="flex flex-1 flex-col gap-4 overflow-auto p-6 md:gap-8">
-              {effectiveTab === "get-started" ? (
+              {effectiveTab === REMOTE_SENSING_TAB ? (
+                <RemoteSensingTemplateComponent
+                  onOpened={() => setOpen(false)}
+                />
+              ) : effectiveTab === "get-started" ? (
                 <GetStartedComponent
                   loading={loading}
                   onFlowCreating={handleFlowCreating}
